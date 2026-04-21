@@ -399,13 +399,19 @@ def fmt_word(w): return f'${w:04x}'
 
 
 def label_for(addr, dis, ram_labels):
-    """Return (label, css_class, anchor_id_or_None) for an address operand."""
+    """Return (label, css_class, anchor_id_or_None) for an address operand.
+    `ram_labels` may also contain entries for PRG addresses ($8000-$ffff);
+    in that case the user-supplied name replaces the auto-generated
+    L_xxxx and serves as the in-page anchor target."""
     if addr in HW_REGS:
         return (HW_REGS[addr], 'reg', None)
+    if 0x8000 <= addr <= 0xffff and addr in dis.jump_targets:
+        if addr in ram_labels:
+            name = ram_labels[addr][0]
+            return (name, 'code', name)
+        return (f'L_{addr:04x}', 'code', f'L_{addr:04x}')
     if addr in ram_labels:
         return (ram_labels[addr][0], 'ram', None)
-    if 0x8000 <= addr <= 0xffff and addr in dis.jump_targets:
-        return (f'L_{addr:04x}', 'code', f'L_{addr:04x}')
     return (None, None, None)
 
 
@@ -509,7 +515,10 @@ def emit_instruction(pc, dis, ram_labels, comment=None):
     label_text = ''
     label_html = ''
     if pc in dis.jump_targets:
-        name = f'L_{pc:04x}'
+        if pc in ram_labels:
+            name = ram_labels[pc][0]
+        else:
+            name = f'L_{pc:04x}'
         label_text = name
         label_html = f'<span id="{name}">{name}</span>'
     label_col = pad_html(label_text, label_html, LABEL_W)
@@ -614,6 +623,11 @@ def render(rom, dis, out_path, user_labels=None):
     ram_labels = dict(RAM_LABELS)
     if user_labels:
         ram_labels.update(user_labels)
+    # Any user-labeled PRG address is a code label — promote it into
+    # jump_targets so emit_instruction() will print the label line.
+    for addr in ram_labels:
+        if 0x8000 <= addr <= 0xffff:
+            dis.jump_targets.add(addr)
     lines = []
 
     # Header banner with iNES + vector info.
@@ -637,8 +651,10 @@ def render(rom, dis, out_path, user_labels=None):
         name = HW_REGS[addr]
         lines.append(f'{name:<12s} = ${addr:04x}')
     lines.append('')
-    lines.append('; ----- 1942 RAM map (Data Crystal) -----')
+    lines.append('; ----- 1942 RAM map (Data Crystal + discoveries) -----')
     for addr in sorted(ram_labels):
+        if addr >= 0x8000:
+            continue  # PRG addresses are code labels, emitted in the listing
         name, desc = ram_labels[addr][0], ram_labels[addr][1]
         lines.append(f'{name:<12s} = ${addr:04x}  ; {desc}')
     lines.append('')

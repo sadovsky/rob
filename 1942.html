@@ -81,8 +81,10 @@ SND_CHN      = $4015
 JOY1         = $4016
 JOY2         = $4017
 
-; ----- 1942 RAM map (Data Crystal) -----
+; ----- 1942 RAM map (Data Crystal + discoveries) -----
 A_Hold_Counter = $00db  ; frames the A button has been held; rolls over at 10 and triggers L_d3b9 (roll attempt)
+P2_Active    = $0384  ; companion to P1_Active; tested by P1_LifeLost at $b80a to decide whether to swap players or game-over
+P1_Active    = $0385  ; $ff while P1 is the active player; cleared on game-over. Set at $b7da during NewGame_Init_P1
 A_Button_State = $0388  ; bit $10 = A held this frame (debounce flag set in L_d2aa)
 Player_OAM_Y = $03af  ; shadow-OAM mirror of Player_Y
 Player_OAM_X = $03b2  ; shadow-OAM mirror of Player_X (same value, written via DMA)
@@ -99,6 +101,7 @@ Level        = $0438  ; current stage (00 = stage 1)
 Player_Y     = $04a7  ; vertical position; UP held drives toward $56 (top), DOWN toward $c1 (bottom)
 Player_X     = $04c0  ; horizontal position; LEFT held drives toward $1e (left edge), RIGHT toward $e6 (right edge)
 Buttons_Pressed = $0785  ; current-frame joypad state; A-press handler (L_d2aa) tests bit $40, the input handlers at L_d472 / L_dc54 also consume this
+TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from menu choice, gates 2P paths in Continue_Init_P1 / NewGame_Init_P2
 
 8000: a9 1e        <span id="L_8000">L_8000</span>          lda     #$1e                    
 8002: 8d 8e 03                     sta     $038e                   
@@ -1853,7 +1856,7 @@ a224: 4c cc a2                     jmp     <a href="#L_a2cc">L_a2cc</a>
 a227: ad 80 03     <span id="L_a227">L_a227</span>          lda     $0380                   
 a22a: f0 03                        beq     <a href="#L_a22f">L_a22f</a>                  
 a22c: 4c cc a2                     jmp     <a href="#L_a2cc">L_a2cc</a>                  
-a22f: ad 84 03     <span id="L_a22f">L_a22f</span>          lda     $0384                   
+a22f: ad 84 03     <span id="L_a22f">L_a22f</span>          lda     P2_Active               
 a232: f0 03                        beq     <a href="#L_a237">L_a237</a>                  
 a234: 4c cc a2                     jmp     <a href="#L_a2cc">L_a2cc</a>                  
 a237: a4 81        <span id="L_a237">L_a237</span>          ldy     $81                     
@@ -3586,7 +3589,7 @@ b687: 85 8c a9 00 ..                .byte   $85, $8c, $a9, $00, $85, $8f, $85, $
 b68f: a9 00 8d 23 ..                .byte   $a9, $00, $8d, $23, $07, $20, $94, $a0
 b697: 20 6c b9 20 ..                .byte   $20, $6c, $b9, $20, $3d, $b9, $20, $12
 b69f: ba a9 00                     .byte   $ba, $a9, $00
-b6a2: 8d 85 03     <span id="L_b6a2">L_b6a2</span>          sta     $0385                   
+b6a2: 8d 85 03     <span id="L_b6a2">L_b6a2</span>          sta     P1_Active               
 b6a5: a9 ff                        lda     #$ff                    
 b6a7: 8d 80 03                     sta     $0380                   
 b6aa: a0 0b                        ldy     #$0b                    
@@ -3609,7 +3612,7 @@ b6d1: d0 51                        bne     <a href="#L_b724">L_b724</a>
 b6d3: a9 ff                        lda     #$ff                    
 b6d5: 8d 82 03                     sta     $0382                   
 b6d8: a9 00                        lda     #$00                    
-b6da: 8d bc 07                     sta     $07bc                   
+b6da: 8d bc 07                     sta     TwoPlayer_Mode          
 b6dd: ee bb 07                     inc     $07bb                   
 b6e0: ad bb 07                     lda     $07bb                   
 b6e3: 29 03                        and     #$03                    
@@ -3621,7 +3624,7 @@ b6ee: d0 12                        bne     <a href="#L_b702">L_b702</a>
 b6f0: ad c5 07                     lda     $07c5                   
 b6f3: f0 15                        beq     <a href="#L_b70a">L_b70a</a>                  
 b6f5: a9 ff                        lda     #$ff                    
-b6f7: 8d bc 07                     sta     $07bc                   
+b6f7: 8d bc 07                     sta     TwoPlayer_Mode          
 b6fa: a9 9f                        lda     #$9f                    
 b6fc: 8d b2 04                     sta     $04b2                   
 b6ff: 4c 31 b7                     jmp     <a href="#L_b731">L_b731</a>                  
@@ -3651,11 +3654,11 @@ b758: 88                           dey
 b759: 10 f5                        bpl     <a href="#L_b750">L_b750</a>                  
 b75b: 4c c5 b6     <span id="L_b75b">L_b75b</span>          jmp     <a href="#L_b6c5">L_b6c5</a>                  
 b75e: a9 00        <span id="L_b75e">L_b75e</span>          lda     #$00                    
-b760: 8d 85 03                     sta     $0385                   
+b760: 8d 85 03                     sta     P1_Active               
 b763: 8d 80 03                     sta     $0380                   
-b766: 8d 84 03                     sta     $0384                   
+b766: 8d 84 03                     sta     P2_Active               
 b769: 20 06 c3                     jsr     <a href="#L_c306">L_c306</a>                  
-b76c: ad bc 07                     lda     $07bc                   
+b76c: ad bc 07                     lda     TwoPlayer_Mode          
 b76f: d0 06                        bne     <a href="#L_b777">L_b777</a>                  
 b771: ad bb 07     <span id="L_b771">L_b771</span>          lda     $07bb                   
 b774: 8d 81 03                     sta     $0381                   
@@ -3679,8 +3682,8 @@ b7cd: 8d a1 03                     sta     $03a1
 b7d0: a9 00                        lda     #$00                    
 b7d2: 8d a0 03                     sta     $03a0                   
 b7d5: 20 db 9f                     jsr     <a href="#L_9fdb">L_9fdb</a>                  
-b7d8: a9 ff                        lda     #$ff                    
-b7da: 8d 85 03                     sta     $0385                   
+b7d8: a9 ff        <span id="NewGame_Init_P1">NewGame_Init_P1</span> lda     #$ff                    
+b7da: 8d 85 03                     sta     P1_Active               
 b7dd: a9 02                        lda     #$02                    
 b7df: 8d 32 04                     sta     Lives_Ones              
 b7e2: a9 00                        lda     #$00                    
@@ -3694,12 +3697,12 @@ b7f4: 99 37 04     <span id="L_b7f4">L_b7f4</span>          sta     $0437,Y
 b7f7: 88                           dey                             
 b7f8: 10 fa                        bpl     <a href="#L_b7f4">L_b7f4</a>                  
 b7fa: 20 22 b9                     jsr     <a href="#L_b922">L_b922</a>                  
-b7fd: ad 84 03                     lda     $0384                   
-b800: d0 05                        bne     <a href="#L_b807">L_b807</a>                  
+b7fd: ad 84 03                     lda     P2_Active               
+b800: d0 05                        bne     <a href="#P1_LifeLost">P1_LifeLost</a>             
 b802: ad 81 03                     lda     $0381                   
-b805: d0 3b                        bne     <a href="#L_b842">L_b842</a>                  
-b807: 20 a1 d7     <span id="L_b807">L_b807</span>          jsr     <a href="#L_d7a1">L_d7a1</a>                  
-b80a: ad 84 03                     lda     $0384                   
+b805: d0 3b                        bne     <a href="#Continue_Init_P1">Continue_Init_P1</a>        
+b807: 20 a1 d7     <span id="P1_LifeLost">P1_LifeLost</span>     jsr     <a href="#Death_Sequence">Death_Sequence</a>          
+b80a: ad 84 03                     lda     P2_Active               
 b80d: d0 1b                        bne     <a href="#L_b82a">L_b82a</a>                  
 b80f: ad 32 04                     lda     Lives_Ones              
 b812: d0 10                        bne     <a href="#L_b824">L_b824</a>                  
@@ -3708,10 +3711,10 @@ b817: f0 11                        beq     <a href="#L_b82a">L_b82a</a>
 b819: ce 31 04                     dec     Lives_Tens              
 b81c: a9 09                        lda     #$09                    
 b81e: 8d 32 04                     sta     Lives_Ones              
-b821: 4c 07 b8                     jmp     <a href="#L_b807">L_b807</a>                  
+b821: 4c 07 b8                     jmp     <a href="#P1_LifeLost">P1_LifeLost</a>             
 b824: ce 32 04 4c ..<span id="D_b824">D_b824</span>          .byte   $ce, $32, $04, $4c, $07, $b8
 b82a: 20 3a bd     <span id="L_b82a">L_b82a</span>          jsr     <a href="#L_bd3a">L_bd3a</a>                  
-b82d: ad 84 03                     lda     $0384                   
+b82d: ad 84 03                     lda     P2_Active               
 b830: f0 08                        beq     <a href="#L_b83a">L_b83a</a>                  
 b832: a9 ff                        lda     #$ff                    
 b834: 8d 83 03                     sta     $0383                   
@@ -3719,15 +3722,15 @@ b837: 20 37 c2                     jsr     <a href="#L_c237">L_c237</a>
 b83a: a9 02        <span id="L_b83a">L_b83a</span>          lda     #$02                    
 b83c: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
 b83f: 20 37 c2                     jsr     <a href="#L_c237">L_c237</a>                  
-b842: ad bc 07     <span id="L_b842">L_b842</span>          lda     $07bc                   
+b842: ad bc 07     <span id="Continue_Init_P1">Continue_Init_P1</span>lda     TwoPlayer_Mode          
 b845: f0 08                        beq     <a href="#L_b84f">L_b84f</a>                  
 b847: 20 7f bf                     jsr     <a href="#L_bf7f">L_bf7f</a>                  
 b84a: a9 02                        lda     #$02                    
 b84c: 8d 32 04                     sta     Lives_Ones              
-b84f: 20 a1 d7     <span id="L_b84f">L_b84f</span>          jsr     <a href="#L_d7a1">L_d7a1</a>                  
+b84f: 20 a1 d7     <span id="L_b84f">L_b84f</span>          jsr     <a href="#Death_Sequence">Death_Sequence</a>          
 b852: ce 32 04                     dec     Lives_Ones              
 b855: 20 58 bf                     jsr     <a href="#L_bf58">L_bf58</a>                  
-b858: a9 02                        lda     #$02                    
+b858: a9 02        <span id="NewGame_Init_P2">NewGame_Init_P2</span> lda     #$02                    
 b85a: 8d 32 04                     sta     Lives_Ones              
 b85d: a9 00                        lda     #$00                    
 b85f: 8d 2e 04                     sta     $042e                   
@@ -3735,7 +3738,7 @@ b862: a0 11                        ldy     #$11
 b864: 99 37 04     <span id="L_b864">L_b864</span>          sta     $0437,Y                 
 b867: 88                           dey                             
 b868: 10 fa                        bpl     <a href="#L_b864">L_b864</a>                  
-b86a: ad bc 07                     lda     $07bc                   
+b86a: ad bc 07                     lda     TwoPlayer_Mode          
 b86d: d0 0a                        bne     <a href="#L_b879">L_b879</a>                  
 b86f: a9 01                        lda     #$01                    
 b871: 8d a1 03                     sta     $03a1                   
@@ -3746,10 +3749,10 @@ b87b: a0 11                        ldy     #$11
 b87d: 99 37 04     <span id="L_b87d">L_b87d</span>          sta     $0437,Y                 
 b880: 88                           dey                             
 b881: 10 fa                        bpl     <a href="#L_b87d">L_b87d</a>                  
-b883: 20 a1 d7                     jsr     <a href="#L_d7a1">L_d7a1</a>                  
+b883: 20 a1 d7                     jsr     <a href="#Death_Sequence">Death_Sequence</a>          
 b886: ce 32 04                     dec     Lives_Ones              
-b889: 20 74 bf     <span id="L_b889">L_b889</span>          jsr     <a href="#L_bf74">L_bf74</a>                  
-b88c: 20 a1 d7                     jsr     <a href="#L_d7a1">L_d7a1</a>                  
+b889: 20 74 bf     <span id="P2_LifeLost">P2_LifeLost</span>     jsr     <a href="#L_bf74">L_bf74</a>                  
+b88c: 20 a1 d7                     jsr     <a href="#Death_Sequence">Death_Sequence</a>          
 b88f: ad 32 04                     lda     Lives_Ones              
 b892: d0 10                        bne     <a href="#L_b8a4">L_b8a4</a>                  
 b894: ad 31 04                     lda     Lives_Tens              
@@ -3760,7 +3763,7 @@ b89e: 8d 32 04                     sta     Lives_Ones
 b8a1: 4c a7 b8                     jmp     <a href="#L_b8a7">L_b8a7</a>                  
 b8a4: ce 32 04     <span id="D_b8a4">D_b8a4</span>          .byte   $ce, $32, $04
 b8a7: 20 58 bf     <span id="L_b8a7">L_b8a7</span>          jsr     <a href="#L_bf58">L_bf58</a>                  
-b8aa: 20 a1 d7                     jsr     <a href="#L_d7a1">L_d7a1</a>                  
+b8aa: 20 a1 d7                     jsr     <a href="#Death_Sequence">Death_Sequence</a>          
 b8ad: ad 32 04                     lda     Lives_Ones              
 b8b0: d0 10                        bne     <a href="#L_b8c2">L_b8c2</a>                  
 b8b2: ad 31 04                     lda     Lives_Tens              
@@ -3768,11 +3771,11 @@ b8b5: f0 3b                        beq     <a href="#L_b8f2">L_b8f2</a>
 b8b7: ce 31 04                     dec     Lives_Tens              
 b8ba: a9 09                        lda     #$09                    
 b8bc: 8d 32 04                     sta     Lives_Ones              
-b8bf: 4c 89 b8                     jmp     <a href="#L_b889">L_b889</a>                  
+b8bf: 4c 89 b8                     jmp     <a href="#P2_LifeLost">P2_LifeLost</a>             
 b8c2: ce 32 04 4c ..<span id="D_b8c2">D_b8c2</span>          .byte   $ce, $32, $04, $4c, $89, $b8
 b8c8: 20 3a bd     <span id="L_b8c8">L_b8c8</span>          jsr     <a href="#L_bd3a">L_bd3a</a>                  
 b8cb: 20 58 bf                     jsr     <a href="#L_bf58">L_bf58</a>                  
-b8ce: 20 a1 d7     <span id="L_b8ce">L_b8ce</span>          jsr     <a href="#L_d7a1">L_d7a1</a>                  
+b8ce: 20 a1 d7     <span id="L_b8ce">L_b8ce</span>          jsr     <a href="#Death_Sequence">Death_Sequence</a>          
 b8d1: 20 74 bf                     jsr     <a href="#L_bf74">L_bf74</a>                  
 b8d4: 20 58 bf                     jsr     <a href="#L_bf58">L_bf58</a>                  
 b8d7: ad 32 04                     lda     Lives_Ones              
@@ -3786,7 +3789,7 @@ b8e9: 4c ce b8                     jmp     <a href="#L_b8ce">L_b8ce</a>
 b8ec: ce 32 04 4c ..<span id="D_b8ec">D_b8ec</span>          .byte   $ce, $32, $04, $4c, $ce, $b8
 b8f2: 20 3a bd     <span id="L_b8f2">L_b8f2</span>          jsr     <a href="#L_bd3a">L_bd3a</a>                  
 b8f5: 20 74 bf                     jsr     <a href="#L_bf74">L_bf74</a>                  
-b8f8: 20 a1 d7     <span id="L_b8f8">L_b8f8</span>          jsr     <a href="#L_d7a1">L_d7a1</a>                  
+b8f8: 20 a1 d7     <span id="L_b8f8">L_b8f8</span>          jsr     <a href="#Death_Sequence">Death_Sequence</a>          
 b8fb: 20 58 bf                     jsr     <a href="#L_bf58">L_bf58</a>                  
 b8fe: 20 74 bf                     jsr     <a href="#L_bf74">L_bf74</a>                  
 b901: ad 32 04                     lda     Lives_Ones              
@@ -4096,7 +4099,7 @@ bc81: 0a 12 0b 11 ..                .byte   $0a, $12, $0b, $11, $10
 bc86: a9 ff        <span id="L_bc86">L_bc86</span>          lda     #$ff                    
 bc88: 8d 23 07                     sta     $0723                   
 bc8b: a9 00                        lda     #$00                    
-bc8d: 8d 85 03                     sta     $0385                   
+bc8d: 8d 85 03                     sta     P1_Active               
 bc90: 85 6e                        sta     $6e                     
 bc92: 85 6d                        sta     $6d                     
 bc94: 8d 8f 07                     sta     $078f                   
@@ -4109,7 +4112,7 @@ bca1: 8d 8c 04                     sta     $048c
 bca4: a9 00                        lda     #$00                    
 bca6: 8d 23 07                     sta     $0723                   
 bca9: a9 01                        lda     #$01                    
-bcab: 8d 85 03                     sta     $0385                   
+bcab: 8d 85 03                     sta     P1_Active               
 bcae: 60                           rts                             
 bcaf: a9 0a 85 86 ..<span id="D_bcaf">D_bcaf</span>          .byte   $a9, $0a, $85, $86, $a9, $00, $85, $87
 bcb7: 4c 51 c2                     .byte   $4c, $51, $c2
@@ -4175,7 +4178,7 @@ bd3a: a9 07        <span id="L_bd3a">L_bd3a</span>          lda     #$07
 bd3c: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
 bd3f: a9 09                        lda     #$09                    
 bd41: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
-bd44: ad 84 03                     lda     $0384                   
+bd44: ad 84 03                     lda     P2_Active               
 bd47: d0 22                        bne     <a href="#L_bd6b">L_bd6b</a>                  
 bd49: ad 86 03                     lda     $0386                   
 bd4c: d0 10                        bne     <a href="#L_bd5e">L_bd5e</a>                  
@@ -4610,7 +4613,7 @@ c129: e0 20        <span id="L_c129">L_c129</span>          cpx     #$20
 c12b: d0 df                        bne     <a href="#L_c10c">L_c10c</a>                  
 c12d: ae 2c 07                     ldx     $072c                   
 c130: 9a                           txs                             
-c131: ad 85 03                     lda     $0385                   
+c131: ad 85 03                     lda     P1_Active               
 c134: f0 53                        beq     <a href="#L_c189">L_c189</a>                  
 c136: ee 25 07                     inc     $0725                   
 c139: ad 25 07                     lda     $0725                   
@@ -5493,7 +5496,7 @@ d08a: 8d a1 05                     sta     $05a1
 d08d: 8d 56 05                     sta     $0556                   
 d090: a9 03                        lda     #$03                    
 d092: 8d f2 04                     sta     $04f2                   
-d095: ad bc 07                     lda     $07bc                   
+d095: ad bc 07                     lda     TwoPlayer_Mode          
 d098: f0 0b                        beq     <a href="#L_d0a5">L_d0a5</a>                  
 d09a: ad 37 04                     lda     $0437                   
 d09d: d0 03                        bne     <a href="#L_d0a2">L_d0a2</a>                  
@@ -6093,7 +6096,7 @@ d794: ad 6f 05                     lda     $056f
 d797: 99 6f 05                     sta     $056f,Y                 
 d79a: 60                           rts                             
 d79b: ad 37 04 c9 ..                .byte   $ad, $37, $04, $c9, $ff, $60
-d7a1: a9 ff        <span id="L_d7a1">L_d7a1</span>          lda     #$ff                    
+d7a1: a9 ff        <span id="Death_Sequence">Death_Sequence</span>  lda     #$ff                    
 d7a3: 8d c5 07                     sta     $07c5                   
 d7a6: 8d 18 07                     sta     $0718                   
 d7a9: a9 00                        lda     #$00                    
@@ -6106,7 +6109,7 @@ d7b9: 29 e7                        and     #$e7
 d7bb: 85 8d                        sta     $8d                     
 d7bd: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 d7c0: 20 40 e2                     jsr     <a href="#L_e240">L_e240</a>                  
-d7c3: ad bc 07                     lda     $07bc                   
+d7c3: ad bc 07                     lda     TwoPlayer_Mode          
 d7c6: d0 05                        bne     <a href="#L_d7cd">L_d7cd</a>                  
 d7c8: ad 37 04                     lda     $0437                   
 d7cb: f0 06                        beq     <a href="#L_d7d3">L_d7d3</a>                  
@@ -6142,7 +6145,7 @@ d80b: 90 09                        bcc     <a href="#L_d816">L_d816</a>
 d80d: 8d 34 04                     sta     $0434                   
 d810: ee 33 04                     inc     $0433                   
 d813: 4c 08 d8                     jmp     <a href="#L_d808">L_d808</a>                  
-d816: ad bc 07     <span id="L_d816">L_d816</span>          lda     $07bc                   
+d816: ad bc 07     <span id="L_d816">L_d816</span>          lda     TwoPlayer_Mode          
 d819: d0 08                        bne     <a href="#L_d823">L_d823</a>                  
 d81b: ad 8e 04                     lda     $048e                   
 d81e: 09 40                        ora     #$40                    
@@ -6163,9 +6166,9 @@ d83e: 90 e5                        bcc     <a href="#L_d825">L_d825</a>
 d840: ad 8e 04                     lda     $048e                   
 d843: 09 04                        ora     #$04                    
 d845: 8d 8e 04                     sta     $048e                   
-d848: 4c 50 d8                     jmp     <a href="#L_d850">L_d850</a>                  
+d848: 4c 50 d8                     jmp     <a href="#Reset_Rolls">Reset_Rolls</a>             
 d84b: c8 c0 03 90 ..<span id="D_d84b">D_d84b</span>          .byte   $c8, $c0, $03, $90, $d5
-d850: a9 03        <span id="L_d850">L_d850</span>          lda     #$03                    
+d850: a9 03        <span id="Reset_Rolls">Reset_Rolls</span>     lda     #$03                    
 d852: 8d 36 04                     sta     Rolls                   
 d855: a2 0b                        ldx     #$0b                    
 d857: a9 00                        lda     #$00                    
@@ -6178,7 +6181,7 @@ d863: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>
 d866: a9 1c                        lda     #$1c                    
 d868: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
 d86b: 20 86 bc                     jsr     <a href="#L_bc86">L_bc86</a>                  
-d86e: ad 84 03                     lda     $0384                   
+d86e: ad 84 03                     lda     P2_Active               
 d871: d0 18                        bne     <a href="#L_d88b">L_d88b</a>                  
 d873: ad 37 04                     lda     $0437                   
 d876: f0 13                        beq     <a href="#L_d88b">L_d88b</a>                  
@@ -6599,7 +6602,7 @@ dc1d: ad 47 04 c9 ..<span id="D_dc1d">D_dc1d</span>          .byte   $ad, $47, $
 dc25: 1e 20 f5 c1                  .byte   $1e, $20, $f5, $c1
 dc29: a9 00        <span id="L_dc29">L_dc29</span>          lda     #$00                    
 dc2b: 8d 47 04                     sta     $0447                   
-dc2e: ad 84 03     <span id="L_dc2e">L_dc2e</span>          lda     $0384                   
+dc2e: ad 84 03     <span id="L_dc2e">L_dc2e</span>          lda     P2_Active               
 dc31: f0 3f                        beq     <a href="#L_dc72">L_dc72</a>                  
 dc33: ad 83 07                     lda     $0783                   
 dc36: d0 0e                        bne     <a href="#L_dc46">L_dc46</a>                  
@@ -6659,7 +6662,7 @@ dcb3: ad a0 03                     lda     $03a0
 dcb6: c9 61                        cmp     #$61                    
 dcb8: b0 03                        bcs     <a href="#L_dcbd">L_dcbd</a>                  
 dcba: 4c 9d de                     jmp     <a href="#L_de9d">L_de9d</a>                  
-dcbd: ad 84 03     <span id="L_dcbd">L_dcbd</span>          lda     $0384                   
+dcbd: ad 84 03     <span id="L_dcbd">L_dcbd</span>          lda     P2_Active               
 dcc0: d0 06                        bne     <a href="#L_dcc8">L_dcc8</a>                  
 dcc2: a5 98                        lda     $98                     
 dcc4: 29 10                        and     #$10                    
@@ -7125,7 +7128,7 @@ e154: 8d 8d 07                     sta     $078d
 e157: 20 3e a7                     jsr     <a href="#L_a73e">L_a73e</a>                  
 e15a: 4c f0 d7                     jmp     <a href="#L_d7f0">L_d7f0</a>                  
 e15d: a9 00        <span id="L_e15d">L_e15d</span>          lda     #$00                    
-e15f: 8d 85 03                     sta     $0385                   
+e15f: 8d 85 03                     sta     P1_Active               
 e162: a9 08                        lda     #$08                    
 e164: 20 40 c2                     jsr     <a href="#L_c240">L_c240</a>                  
 e167: 20 06 c3                     jsr     <a href="#L_c306">L_c306</a>                  
@@ -7191,7 +7194,7 @@ e21b: a9 00                        lda     #$00
 e21d: 8d a0 03                     sta     $03a0                   
 e220: 20 06 c3                     jsr     <a href="#L_c306">L_c306</a>                  
 e223: a9 00                        lda     #$00                    
-e225: 8d 85 03                     sta     $0385                   
+e225: 8d 85 03                     sta     P1_Active               
 e228: 60                           rts                             
 e229: ad 36 04     <span id="L_e229">L_e229</span>          lda     Rolls                   
 e22c: 18                           clc                             
