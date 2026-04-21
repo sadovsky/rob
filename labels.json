@@ -8,8 +8,9 @@
   "$008b": ["PPU_SrcHi",      "high byte of source pointer ($8b:$8a) used by PPU_WriteBlock"],
   "$008c": ["PPUCTRL_Shadow", "mirror of last value written to $2000; flipping bit $80 gates NMI and is reapplied across routines"],
 
-  "$04c0": ["Entity_X",       "entity horizontal position table; index 0 is the player. Player writes: LEFT drives toward $1e (left edge), RIGHT toward $e6 (right edge). Entity code at L_aa61/L_b1d7 reads Entity_X,X / Entity_X,Y"],
-  "$04a7": ["Entity_Y",       "entity vertical position table; index 0 is the player. Player writes: UP drives toward $56 (top), DOWN toward $c1 (bottom)"],
+  "$048e": ["Entity_Active",  "entity SOA attribute 0 (active flag): bit $80 = slot in use, tested by L_f7cd. The whole entity table is 25 attributes x 25 slots, $19-byte stride per attribute, running $048e..$0682. Slot 0 is the player; Reset_Rolls clears slots 0-11 (player + co-active aux entities)"],
+  "$04a7": ["Entity_Y",       "entity SOA attribute 1 (vertical position); 25 slots at +0..+24 within the table. Slot 0 is the player: UP drives toward $56 (top), DOWN toward $c1 (bottom)"],
+  "$04c0": ["Entity_X",       "entity SOA attribute 2 (horizontal position); 25 slots. Slot 0 is the player: LEFT drives toward $1e (left edge), RIGHT toward $e6 (right edge). L_aa61 reads Entity_X,X / Entity_X,Y for collision checks between two arbitrary slots"],
   "$03b2": ["Player_OAM_X",   "shadow-OAM mirror of Entity_X[0] (player), written via DMA"],
   "$03af": ["Player_OAM_Y",   "shadow-OAM mirror of Entity_Y[0] (player)"],
   "$00db": ["A_Hold_Counter", "frames the A button has been held; rolls over at 10 and triggers L_d3b9 (roll attempt)"],
