@@ -1,0 +1,13 @@
+# Commercial ROM dumps — do not redistribute
+*.nes
+
+# Reference disassembly used as a format model — not ours to redistribute
+SuperMarioBros.html
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor scratch
+*.swp
+*.swo
