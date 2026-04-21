@@ -16,6 +16,10 @@
   "$0388": ["A_Button_State", "bit $10 = A held this frame (debounce flag set in L_d2aa)"],
   "$0785": ["Buttons_Pressed","current-frame joypad state; A-press handler (L_d2aa) tests bit $40, the input handlers at L_d472 / L_dc54 also consume this"],
 
+  "$0386": ["Active_Player_Index","0 = P1 currently playing, 1 = P2 currently playing. NewGame_Init_P1 inits to 0; SwapTo_P2 sets to 1, SwapTo_P1 / Restore_P1_NoSave set to 0"],
+  "$0427": ["ActivePlayer_State","start of the 33-byte ($21) block holding the currently playing player's state. Holds Score, Lives, Rolls, Level, etc.; swapped via SwapTo_P1 / SwapTo_P2 in 2P games"],
+  "$044a": ["P1_SavedState",  "33-byte ($21) save buffer for P1 state while P2 is playing. SwapTo_P2 saves the active block here; SwapTo_P1 / Restore_P1_NoSave load it back into ActivePlayer_State"],
+  "$046b": ["P2_SavedState",  "33-byte ($21) save buffer for P2 state while P1 is playing. SwapTo_P1 saves the active block here; SwapTo_P2 loads it back into ActivePlayer_State"],
   "$03ae": ["PPU_QueueReady", "nonzero -> NMI_Handler walks the PPU_UpdateQueue. NMI clears it on completion ($c07e); set by the queue builder at $81e2"],
   "$078f": ["PPU_UpdateQueue","variable-length PPU update queue consumed by NMI_Handler. Each entry: addr_hi, addr_lo, count, count×data_byte; queue terminates when count == 0"],
   "$07bd": ["WarmBoot_Magic1","first half of the warm-boot magic word; Reset_Handler skips RAM-clear when $07bd:$07be == $55:$aa"],
@@ -25,6 +29,9 @@
   "$0384": ["P2_Active",      "companion to P1_Active; tested by P1_LifeLost at $b80a to decide whether to swap players or game-over"],
 
   "$801b": ["PPU_WriteBlock", "copy PPU_WriteCount bytes from ($PPU_Src),Y to $2007, starting at $2006 = PPU_AddrHi:PPU_AddrLo. Called 25x; the main PPU-update primitive"],
+  "$bf58": ["SwapTo_P2",      "swap active player P1 -> P2: copy ActivePlayer_State to P1_SavedState, then load P2_SavedState into ActivePlayer_State, set Active_Player_Index = 1"],
+  "$bf74": ["SwapTo_P1",      "swap active player P2 -> P1: copy ActivePlayer_State to P2_SavedState, then load P1_SavedState into ActivePlayer_State, set Active_Player_Index = 0"],
+  "$bf7f": ["Restore_P1_NoSave","alternate entry into SwapTo_P1: skip the save half and only load P1_SavedState into ActivePlayer_State. Used by Continue_Init_P1 because the dying P1 state is being discarded"],
   "$bf90": ["Reset_Handler",  "RESET / IRQ vector entry: SEI + CLD, set stack to $f3, enable NMI bit, wait for VBlank, then check WarmBoot_Magic. Cold path zeros all of $0000-$07ff and writes the magic; warm path skips the wipe"],
   "$c030": ["NMI_Handler",    "NMI vector entry: stash A/X/Y to $63-$65, disable NMI bit in $2000, OAM-DMA the shadow OAM at $0200 via $4014, blank rendering, then if PPU_QueueReady drain PPU_UpdateQueue into $2006/$2007 and clear the flag"],
   "$a9ce": ["ReturnCarrySet", "trivial SEC; RTS helper used 8x by callers that want to propagate 'failed/not-found' via carry"],

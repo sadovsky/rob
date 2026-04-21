@@ -93,11 +93,12 @@ PPUCTRL_Shadow = $008c  ; mirror of last value written to $2000; flipping bit $8
 A_Hold_Counter = $00db  ; frames the A button has been held; rolls over at 10 and triggers L_d3b9 (roll attempt)
 P2_Active    = $0384  ; companion to P1_Active; tested by P1_LifeLost at $b80a to decide whether to swap players or game-over
 P1_Active    = $0385  ; $ff while P1 is the active player; cleared on game-over. Set at $b7da during NewGame_Init_P1
+Active_Player_Index = $0386  ; 0 = P1 currently playing, 1 = P2 currently playing. NewGame_Init_P1 inits to 0; SwapTo_P2 sets to 1, SwapTo_P1 / Restore_P1_NoSave set to 0
 A_Button_State = $0388  ; bit $10 = A held this frame (debounce flag set in L_d2aa)
 PPU_QueueReady = $03ae  ; nonzero -> NMI_Handler walks the PPU_UpdateQueue. NMI clears it on completion ($c07e); set by the queue builder at $81e2
 Player_OAM_Y = $03af  ; shadow-OAM mirror of Entity_Y[0] (player)
 Player_OAM_X = $03b2  ; shadow-OAM mirror of Entity_X[0] (player), written via DMA
-Score_D5     = $0427  ; score digit (100,000s)
+ActivePlayer_State = $0427  ; start of the 33-byte ($21) block holding the currently playing player's state. Holds Score, Lives, Rolls, Level, etc.; swapped via SwapTo_P1 / SwapTo_P2 in 2P games
 Score_D4     = $0428  ; score digit (10,000s)
 Score_D3     = $0429  ; score digit (1,000s)
 Score_D2     = $042a  ; score digit (100s)
@@ -107,6 +108,8 @@ Lives_Tens   = $0431  ; lives tens digit
 Lives_Ones   = $0432  ; lives ones digit (starts at 02)
 Rolls        = $0436  ; special rolls remaining (starts at 03)
 Level        = $0438  ; current stage (00 = stage 1)
+P1_SavedState = $044a  ; 33-byte ($21) save buffer for P1 state while P2 is playing. SwapTo_P2 saves the active block here; SwapTo_P1 / Restore_P1_NoSave load it back into ActivePlayer_State
+P2_SavedState = $046b  ; 33-byte ($21) save buffer for P2 state while P1 is playing. SwapTo_P1 saves the active block here; SwapTo_P2 loads it back into ActivePlayer_State
 Entity_Y     = $04a7  ; entity vertical position table; index 0 is the player. Player writes: UP drives toward $56 (top), DOWN toward $c1 (bottom)
 Entity_X     = $04c0  ; entity horizontal position table; index 0 is the player. Player writes: LEFT drives toward $1e (left edge), RIGHT toward $e6 (right edge). Entity code at L_aa61/L_b1d7 reads Entity_X,X / Entity_X,Y
 Buttons_Pressed = $0785  ; current-frame joypad state; A-press handler (L_d2aa) tests bit $40, the input handlers at L_d472 / L_dc54 also consume this
@@ -2707,13 +2710,13 @@ ac55: 90 03                        bcc     <a href="#L_ac5a">L_ac5a</a>
 ac57: 38                           sec                             
 ac58: e9 0a                        sbc     #$0a                    
 ac5a: 8d 28 04     <span id="L_ac5a">L_ac5a</span>          sta     Score_D4                
-ac5d: ad 27 04                     lda     Score_D5                
+ac5d: ad 27 04                     lda     ActivePlayer_State      
 ac60: 69 00                        adc     #$00                    
 ac62: c9 0a                        cmp     #$0a                    
 ac64: 90 03                        bcc     <a href="#L_ac69">L_ac69</a>                  
 ac66: 38                           sec                             
 ac67: e9 0a                        sbc     #$0a                    
-ac69: 8d 27 04     <span id="L_ac69">L_ac69</span>          sta     Score_D5                
+ac69: 8d 27 04     <span id="L_ac69">L_ac69</span>          sta     ActivePlayer_State      
 ac6c: 20 39 ad                     jsr     <a href="#L_ad39">L_ad39</a>                  
 ac6f: ad 2e 04                     lda     $042e                   
 ac72: d0 1a                        bne     <a href="#L_ac8e">L_ac8e</a>                  
@@ -2747,7 +2750,7 @@ acc2: 4c c8 ac                     jmp     <a href="#L_acc8">L_acc8</a>
 acc5: 8d 30 04     <span id="D_acc5">D_acc5</span>          .byte   $8d, $30, $04
 acc8: a0 00        <span id="L_acc8">L_acc8</span>          ldy     #$00                    
 acca: b9 bf 07     <span id="L_acca">L_acca</span>          lda     $07bf,Y                 
-accd: d9 27 04                     cmp     Score_D5,Y              
+accd: d9 27 04                     cmp     ActivePlayer_State,Y    
 acd0: 90 0e                        bcc     <a href="#L_ace0">L_ace0</a>                  
 acd2: d0 05                        bne     <a href="#L_acd9">L_acd9</a>                  
 acd4: c8                           iny                             
@@ -2757,21 +2760,21 @@ acd9: ae 8b 03     <span id="L_acd9">L_acd9</span>          ldx     $038b
 acdc: ac 8c 03                     ldy     $038c                   
 acdf: 60                           rts                             
 ace0: a0 00        <span id="L_ace0">L_ace0</span>          ldy     #$00                    
-ace2: b9 27 04     <span id="L_ace2">L_ace2</span>          lda     Score_D5,Y              
+ace2: b9 27 04     <span id="L_ace2">L_ace2</span>          lda     ActivePlayer_State,Y    
 ace5: 99 bf 07                     sta     $07bf,Y                 
 ace8: c8                           iny                             
 ace9: c0 06                        cpy     #$06                    
 aceb: d0 f5                        bne     <a href="#L_ace2">L_ace2</a>                  
-aced: ad 86 03                     lda     $0386                   
+aced: ad 86 03                     lda     Active_Player_Index     
 acf0: d0 0e                        bne     <a href="#L_ad00">L_ad00</a>                  
 acf2: a0 05                        ldy     #$05                    
-acf4: b9 4a 04     <span id="L_acf4">L_acf4</span>          lda     $044a,Y                 
+acf4: b9 4a 04     <span id="L_acf4">L_acf4</span>          lda     P1_SavedState,Y         
 acf7: 99 bf 07                     sta     $07bf,Y                 
 acfa: 88                           dey                             
 acfb: 10 f7                        bpl     <a href="#L_acf4">L_acf4</a>                  
 acfd: 4c d9 ac                     jmp     <a href="#L_acd9">L_acd9</a>                  
 ad00: a0 05        <span id="L_ad00">L_ad00</span>          ldy     #$05                    
-ad02: b9 6b 04     <span id="L_ad02">L_ad02</span>          lda     $046b,Y                 
+ad02: b9 6b 04     <span id="L_ad02">L_ad02</span>          lda     P2_SavedState,Y         
 ad05: 99 bf 07                     sta     $07bf,Y                 
 ad08: 88                           dey                             
 ad09: 10 f7                        bpl     <a href="#L_ad02">L_ad02</a>                  
@@ -2797,7 +2800,7 @@ ad39: ad 80 03 c9 ..<span id="D_ad39">D_ad39</span>          .byte   $ad, $80, $
 ad3f: 01 60        <span id="L_ad3f">L_ad3f</span>          ora     ($60,X)                 
 ad41: a0 00                        ldy     #$00                    
 ad43: a2 00                        ldx     #$00                    
-ad45: ad 86 03                     lda     $0386                   
+ad45: ad 86 03                     lda     Active_Player_Index     
 ad48: d0 13                        bne     <a href="#L_ad5d">L_ad5d</a>                  
 ad4a: a9 4a                        lda     #$4a                    
 ad4c: 85 8a                        sta     PPU_SrcLo               
@@ -2816,7 +2819,7 @@ ad65: a9 b1                        lda     #$b1
 ad67: 85 88                        sta     PPU_AddrLo              
 ad69: a9 ad                        lda     #$ad                    
 ad6b: 85 89                        sta     PPU_AddrHi              
-ad6d: bd 27 04     <span id="L_ad6d">L_ad6d</span>          lda     Score_D5,X              
+ad6d: bd 27 04     <span id="L_ad6d">L_ad6d</span>          lda     ActivePlayer_State,X    
 ad70: 29 0f                        and     #$0f                    
 ad72: 91 8a                        sta     ($8a),Y                 
 ad74: c8                           iny                             
@@ -3700,7 +3703,7 @@ b7dd: a9 02                        lda     #$02
 b7df: 8d 32 04                     sta     Lives_Ones              
 b7e2: a9 00                        lda     #$00                    
 b7e4: 8d 8c 04                     sta     $048c                   
-b7e7: 8d 86 03                     sta     $0386                   
+b7e7: 8d 86 03                     sta     Active_Player_Index     
 b7ea: 85 c9                        sta     $c9                     
 b7ec: 8d 2e 04                     sta     $042e                   
 b7ef: 8d 8d 03                     sta     $038d                   
@@ -3736,12 +3739,12 @@ b83c: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>
 b83f: 20 37 c2                     jsr     <a href="#L_c237">L_c237</a>                  
 b842: ad bc 07     <span id="Continue_Init_P1">Continue_Init_P1</span>lda     TwoPlayer_Mode          
 b845: f0 08                        beq     <a href="#L_b84f">L_b84f</a>                  
-b847: 20 7f bf                     jsr     <a href="#L_bf7f">L_bf7f</a>                  
+b847: 20 7f bf                     jsr     <a href="#Restore_P1_NoSave">Restore_P1_NoSave</a>       
 b84a: a9 02                        lda     #$02                    
 b84c: 8d 32 04                     sta     Lives_Ones              
 b84f: 20 a1 d7     <span id="L_b84f">L_b84f</span>          jsr     <a href="#Death_Sequence">Death_Sequence</a>          
 b852: ce 32 04                     dec     Lives_Ones              
-b855: 20 58 bf                     jsr     <a href="#L_bf58">L_bf58</a>                  
+b855: 20 58 bf                     jsr     <a href="#SwapTo_P2">SwapTo_P2</a>               
 b858: a9 02        <span id="NewGame_Init_P2">NewGame_Init_P2</span> lda     #$02                    
 b85a: 8d 32 04                     sta     Lives_Ones              
 b85d: a9 00                        lda     #$00                    
@@ -3763,7 +3766,7 @@ b880: 88                           dey
 b881: 10 fa                        bpl     <a href="#L_b87d">L_b87d</a>                  
 b883: 20 a1 d7                     jsr     <a href="#Death_Sequence">Death_Sequence</a>          
 b886: ce 32 04                     dec     Lives_Ones              
-b889: 20 74 bf     <span id="P2_LifeLost">P2_LifeLost</span>     jsr     <a href="#L_bf74">L_bf74</a>                  
+b889: 20 74 bf     <span id="P2_LifeLost">P2_LifeLost</span>     jsr     <a href="#SwapTo_P1">SwapTo_P1</a>               
 b88c: 20 a1 d7                     jsr     <a href="#Death_Sequence">Death_Sequence</a>          
 b88f: ad 32 04                     lda     Lives_Ones              
 b892: d0 10                        bne     <a href="#L_b8a4">L_b8a4</a>                  
@@ -3774,7 +3777,7 @@ b89c: a9 09                        lda     #$09
 b89e: 8d 32 04                     sta     Lives_Ones              
 b8a1: 4c a7 b8                     jmp     <a href="#L_b8a7">L_b8a7</a>                  
 b8a4: ce 32 04     <span id="D_b8a4">D_b8a4</span>          .byte   $ce, $32, $04
-b8a7: 20 58 bf     <span id="L_b8a7">L_b8a7</span>          jsr     <a href="#L_bf58">L_bf58</a>                  
+b8a7: 20 58 bf     <span id="L_b8a7">L_b8a7</span>          jsr     <a href="#SwapTo_P2">SwapTo_P2</a>               
 b8aa: 20 a1 d7                     jsr     <a href="#Death_Sequence">Death_Sequence</a>          
 b8ad: ad 32 04                     lda     Lives_Ones              
 b8b0: d0 10                        bne     <a href="#L_b8c2">L_b8c2</a>                  
@@ -3786,10 +3789,10 @@ b8bc: 8d 32 04                     sta     Lives_Ones
 b8bf: 4c 89 b8                     jmp     <a href="#P2_LifeLost">P2_LifeLost</a>             
 b8c2: ce 32 04 4c ..<span id="D_b8c2">D_b8c2</span>          .byte   $ce, $32, $04, $4c, $89, $b8
 b8c8: 20 3a bd     <span id="L_b8c8">L_b8c8</span>          jsr     <a href="#L_bd3a">L_bd3a</a>                  
-b8cb: 20 58 bf                     jsr     <a href="#L_bf58">L_bf58</a>                  
+b8cb: 20 58 bf                     jsr     <a href="#SwapTo_P2">SwapTo_P2</a>               
 b8ce: 20 a1 d7     <span id="L_b8ce">L_b8ce</span>          jsr     <a href="#Death_Sequence">Death_Sequence</a>          
-b8d1: 20 74 bf                     jsr     <a href="#L_bf74">L_bf74</a>                  
-b8d4: 20 58 bf                     jsr     <a href="#L_bf58">L_bf58</a>                  
+b8d1: 20 74 bf                     jsr     <a href="#SwapTo_P1">SwapTo_P1</a>               
+b8d4: 20 58 bf                     jsr     <a href="#SwapTo_P2">SwapTo_P2</a>               
 b8d7: ad 32 04                     lda     Lives_Ones              
 b8da: d0 10                        bne     <a href="#L_b8ec">L_b8ec</a>                  
 b8dc: ad 31 04                     lda     Lives_Tens              
@@ -3800,10 +3803,10 @@ b8e6: 8d 32 04                     sta     Lives_Ones
 b8e9: 4c ce b8                     jmp     <a href="#L_b8ce">L_b8ce</a>                  
 b8ec: ce 32 04 4c ..<span id="D_b8ec">D_b8ec</span>          .byte   $ce, $32, $04, $4c, $ce, $b8
 b8f2: 20 3a bd     <span id="L_b8f2">L_b8f2</span>          jsr     <a href="#L_bd3a">L_bd3a</a>                  
-b8f5: 20 74 bf                     jsr     <a href="#L_bf74">L_bf74</a>                  
+b8f5: 20 74 bf                     jsr     <a href="#SwapTo_P1">SwapTo_P1</a>               
 b8f8: 20 a1 d7     <span id="L_b8f8">L_b8f8</span>          jsr     <a href="#Death_Sequence">Death_Sequence</a>          
-b8fb: 20 58 bf                     jsr     <a href="#L_bf58">L_bf58</a>                  
-b8fe: 20 74 bf                     jsr     <a href="#L_bf74">L_bf74</a>                  
+b8fb: 20 58 bf                     jsr     <a href="#SwapTo_P2">SwapTo_P2</a>               
+b8fe: 20 74 bf                     jsr     <a href="#SwapTo_P1">SwapTo_P1</a>               
 b901: ad 32 04                     lda     Lives_Ones              
 b904: d0 10        <span id="L_b904">L_b904</span>          bne     <a href="#L_b916">L_b916</a>                  
 b906: ad 31 04                     lda     Lives_Tens              
@@ -3816,15 +3819,15 @@ b916: ce 32 04 4c ..<span id="D_b916">D_b916</span>          .byte   $ce, $32, $
 b91c: 20 3a bd 4c ..<span id="D_b91c">D_b91c</span>          .byte   $20, $3a, $bd, $4c, $3a, $b8
 b922: a9 00        <span id="L_b922">L_b922</span>          lda     #$00                    
 b924: a0 05                        ldy     #$05                    
-b926: 99 27 04     <span id="L_b926">L_b926</span>          sta     Score_D5,Y              
+b926: 99 27 04     <span id="L_b926">L_b926</span>          sta     ActivePlayer_State,Y    
 b929: 88                           dey                             
 b92a: 10 fa                        bpl     <a href="#L_b926">L_b926</a>                  
 b92c: a0 05                        ldy     #$05                    
-b92e: 99 4a 04     <span id="L_b92e">L_b92e</span>          sta     $044a,Y                 
+b92e: 99 4a 04     <span id="L_b92e">L_b92e</span>          sta     P1_SavedState,Y         
 b931: 88                           dey                             
 b932: 10 fa                        bpl     <a href="#L_b92e">L_b92e</a>                  
 b934: a0 05                        ldy     #$05                    
-b936: 99 6b 04     <span id="L_b936">L_b936</span>          sta     $046b,Y                 
+b936: 99 6b 04     <span id="L_b936">L_b936</span>          sta     P2_SavedState,Y         
 b939: 88                           dey                             
 b93a: 10 fa                        bpl     <a href="#L_b936">L_b936</a>                  
 b93c: 60                           rts                             
@@ -4192,18 +4195,18 @@ bd3f: a9 09                        lda     #$09
 bd41: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
 bd44: ad 84 03                     lda     P2_Active               
 bd47: d0 22                        bne     <a href="#L_bd6b">L_bd6b</a>                  
-bd49: ad 86 03                     lda     $0386                   
+bd49: ad 86 03                     lda     Active_Player_Index     
 bd4c: d0 10                        bne     <a href="#L_bd5e">L_bd5e</a>                  
 bd4e: a0 05                        ldy     #$05                    
-bd50: b9 27 04     <span id="L_bd50">L_bd50</span>          lda     Score_D5,Y              
-bd53: 99 4a 04                     sta     $044a,Y                 
+bd50: b9 27 04     <span id="L_bd50">L_bd50</span>          lda     ActivePlayer_State,Y    
+bd53: 99 4a 04                     sta     P1_SavedState,Y         
 bd56: 88                           dey                             
 bd57: c0 ff                        cpy     #$ff                    
 bd59: d0 f5                        bne     <a href="#L_bd50">L_bd50</a>                  
 bd5b: 4c 6b bd                     jmp     <a href="#L_bd6b">L_bd6b</a>                  
 bd5e: a0 05        <span id="L_bd5e">L_bd5e</span>          ldy     #$05                    
-bd60: b9 27 04     <span id="L_bd60">L_bd60</span>          lda     Score_D5,Y              
-bd63: 99 6b 04                     sta     $046b,Y                 
+bd60: b9 27 04     <span id="L_bd60">L_bd60</span>          lda     ActivePlayer_State,Y    
+bd63: 99 6b 04                     sta     P2_SavedState,Y         
 bd66: 88                           dey                             
 bd67: c0 ff                        cpy     #$ff                    
 bd69: d0 f5                        bne     <a href="#L_bd60">L_bd60</a>                  
@@ -4365,7 +4368,7 @@ beb4: a9 00                        lda     #$00
 beb6: 8d 37 04                     sta     $0437                   
 beb9: a9 00                        lda     #$00                    
 bebb: 8d 23 07                     sta     $0723                   
-bebe: ad 86 03                     lda     $0386                   
+bebe: ad 86 03                     lda     Active_Player_Index     
 bec1: f0 0b                        beq     <a href="#L_bece">L_bece</a>                  
 bec3: a9 bf                        lda     #$bf                    
 bec5: 85 8b                        sta     PPU_SrcHi               
@@ -4409,7 +4412,7 @@ bf3f: 0d 18 20 17 ..                .byte   $0d, $18, $20, $17, $19, $0e, $1b, $
 bf47: 0e 17 1d 0a ..                .byte   $0e, $17, $1d, $0a, $10, $0e, $25, $1d
 bf4f: 18 0d 22 26 ..                .byte   $18, $0d, $22, $26, $1c, $ff, $1d, $18
 bf57: 19                           .byte   $19
-bf58: a2 21        <span id="L_bf58">L_bf58</span>          ldx     #$21                    
+bf58: a2 21        <span id="SwapTo_P2">SwapTo_P2</span>       ldx     #$21                    
 bf5a: bd 26 04     <span id="L_bf5a">L_bf5a</span>          lda     $0426,X                 
 bf5d: 9d 49 04                     sta     $0449,X                 
 bf60: ca                           dex                             
@@ -4420,20 +4423,20 @@ bf68: 9d 26 04                     sta     $0426,X
 bf6b: ca                           dex                             
 bf6c: d0 f7                        bne     <a href="#L_bf65">L_bf65</a>                  
 bf6e: a9 01                        lda     #$01                    
-bf70: 8d 86 03                     sta     $0386                   
+bf70: 8d 86 03                     sta     Active_Player_Index     
 bf73: 60                           rts                             
-bf74: a2 21        <span id="L_bf74">L_bf74</span>          ldx     #$21                    
+bf74: a2 21        <span id="SwapTo_P1">SwapTo_P1</span>       ldx     #$21                    
 bf76: bd 26 04     <span id="L_bf76">L_bf76</span>          lda     $0426,X                 
 bf79: 9d 6a 04                     sta     $046a,X                 
 bf7c: ca                           dex                             
 bf7d: d0 f7                        bne     <a href="#L_bf76">L_bf76</a>                  
-bf7f: a2 21        <span id="L_bf7f">L_bf7f</span>          ldx     #$21                    
+bf7f: a2 21        <span id="Restore_P1_NoSave">Restore_P1_NoSave</span>ldx     #$21                    
 bf81: bd 49 04     <span id="L_bf81">L_bf81</span>          lda     $0449,X                 
 bf84: 9d 26 04                     sta     $0426,X                 
 bf87: ca                           dex                             
 bf88: d0 f7                        bne     <a href="#L_bf81">L_bf81</a>                  
 bf8a: a9 00                        lda     #$00                    
-bf8c: 8d 86 03                     sta     $0386                   
+bf8c: 8d 86 03                     sta     Active_Player_Index     
 bf8f: 60                           rts                             
 bf90: 78           <span id="Reset_Handler">Reset_Handler</span>   sei                             ; IRQ/BRK entry point
 bf91: d8                           cld                             
@@ -4637,7 +4640,7 @@ c145: ee 26 07                     inc     $0726
 c148: ad 26 07                     lda     $0726                   
 c14b: 29 01                        and     #$01                    
 c14d: f0 3a                        beq     <a href="#L_c189">L_c189</a>                  
-c14f: ad 86 03                     lda     $0386                   
+c14f: ad 86 03                     lda     Active_Player_Index     
 c152: f0 10                        beq     <a href="#L_c164">L_c164</a>                  
 c154: a0 00                        ldy     #$00                    
 c156: b9 72 c3     <span id="L_c156">L_c156</span>          lda     $c372,Y                 
@@ -7656,7 +7659,7 @@ ecc7: a9 60        <span id="L_ecc7">L_ecc7</span>          lda     #$60
 ecc9: 9d c0 04                     sta     Entity_X,X              
 eccc: a9 88                        lda     #$88                    
 ecce: 9d a7 04                     sta     Entity_Y,X              
-ecd1: ad 86 03                     lda     $0386                   
+ecd1: ad 86 03                     lda     Active_Player_Index     
 ecd4: f0 06                        beq     <a href="#L_ecdc">L_ecdc</a>                  
 ecd6: fe d9 04                     inc     $04d9,X                 
 ecd9: fe d9 04                     inc     $04d9,X                 
