@@ -1,4 +1,5 @@
 {
+  "$0062": ["VBlank_Counter", "incremented at $c106 in the NMI tail; Main_Loop at $c2e8 spins until it reaches 3, then resets it. Effectively gates the game to one logic step per 3 VBlanks (~20 Hz)"],
   "$0063": ["NMI_SaveA",      "NMI prologue stash for the A register (restored by the NMI epilogue before RTI)"],
   "$0065": ["NMI_SaveY",      "NMI prologue stash for the Y register"],
   "$0087": ["PPU_WriteCount", "byte count consumed by PPU_WriteBlock ($801b); 58 write sites across PPU-update code"],
@@ -33,7 +34,9 @@
   "$bf58": ["SwapTo_P2",      "swap active player P1 -> P2: copy ActivePlayer_State to P1_SavedState, then load P2_SavedState into ActivePlayer_State, set Active_Player_Index = 1"],
   "$bf74": ["SwapTo_P1",      "swap active player P2 -> P1: copy ActivePlayer_State to P2_SavedState, then load P1_SavedState into ActivePlayer_State, set Active_Player_Index = 0"],
   "$bf7f": ["Restore_P1_NoSave","alternate entry into SwapTo_P1: skip the save half and only load P1_SavedState into ActivePlayer_State. Used by Continue_Init_P1 because the dying P1 state is being discarded"],
-  "$bf90": ["Reset_Handler",  "RESET / IRQ vector entry: SEI + CLD, set stack to $f3, enable NMI bit, wait for VBlank, then check WarmBoot_Magic. Cold path zeros all of $0000-$07ff and writes the magic; warm path skips the wipe"],
+  "$bf90": ["Reset_Handler",  "RESET / IRQ vector entry: SEI + CLD, set stack to $f3, enable NMI bit, wait for VBlank, then check WarmBoot_Magic. Cold path zeros all of $0000-$07ff and writes the magic; warm path skips the wipe. Both paths fall into Init_PPU_And_MainLoop"],
+  "$bfca": ["Init_PPU_And_MainLoop","post-Reset init: clear zero page, configure PPU ($2001 sprites on, $2000 NMI+8x16), clear scroll, fill OAM with $ff, enable APU, set up nametable pointer at $d0/$d1. Falls through to Main_Loop"],
+  "$c2c0": ["Main_Loop",      "main idle loop: spins until VBlank_Counter >= 3, resets it, re-asserts NMI enable in PPUCTRL_Shadow, then loops. Game logic runs entirely in the NMI tail; this loop just keeps the CPU alive between frames and re-arms the stack"],
   "$c030": ["NMI_Handler",    "NMI vector entry: stash A/X/Y to $63-$65, disable NMI bit in $2000, OAM-DMA the shadow OAM at $0200 via $4014, blank rendering, then if PPU_QueueReady drain PPU_UpdateQueue into $2006/$2007 and clear the flag"],
   "$a9ce": ["ReturnCarrySet", "trivial SEC; RTS helper used 8x by callers that want to propagate 'failed/not-found' via carry"],
 

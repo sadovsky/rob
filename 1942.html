@@ -82,6 +82,7 @@ JOY1         = $4016
 JOY2         = $4017
 
 ; ----- 1942 RAM map (Data Crystal + discoveries) -----
+VBlank_Counter = $0062  ; incremented at $c106 in the NMI tail; Main_Loop at $c2e8 spins until it reaches 3, then resets it. Effectively gates the game to one logic step per 3 VBlanks (~20 Hz)
 NMI_SaveA    = $0063  ; NMI prologue stash for the A register (restored by the NMI epilogue before RTI)
 NMI_SaveY    = $0065  ; NMI prologue stash for the Y register
 PPU_WriteCount = $0087  ; byte count consumed by PPU_WriteBlock ($801b); 58 write sites across PPU-update code
@@ -2117,7 +2118,7 @@ a428: a5 32                        lda     $32
 a42a: a5 53                        lda     $53                     
 a42c: a5 78                        lda     $78                     
 a42e: a5 a5                        lda     $a5                     
-a430: a5 62                        lda     $62                     
+a430: a5 62                        lda     VBlank_Counter          
 a432: a6 6f                        ldx     $6f                     
 a434: a6 7e                        ldx     $7e                     
 a436: a6 8d                        ldx     $8d                     
@@ -4452,7 +4453,7 @@ bfa2: c9 55                        cmp     #$55
 bfa4: d0 07                        bne     <a href="#L_bfad">L_bfad</a>                  
 bfa6: ad be 07                     lda     WarmBoot_Magic2         
 bfa9: c9 aa                        cmp     #$aa                    
-bfab: f0 1d                        beq     <a href="#L_bfca">L_bfca</a>                  
+bfab: f0 1d                        beq     <a href="#Init_PPU_And_MainLoop">Init_PPU_And_MainLoop</a>   
 bfad: a9 07        <span id="L_bfad">L_bfad</span>          lda     #$07                    
 bfaf: 85 8b                        sta     PPU_SrcHi               
 bfb1: a9 00                        lda     #$00                    
@@ -4467,7 +4468,7 @@ bfc0: a9 55                        lda     #$55
 bfc2: 8d bd 07                     sta     WarmBoot_Magic1         
 bfc5: a9 aa                        lda     #$aa                    
 bfc7: 8d be 07                     sta     WarmBoot_Magic2         
-bfca: a9 00        <span id="L_bfca">L_bfca</span>          lda     #$00                    
+bfca: a9 00        <span id="Init_PPU_And_MainLoop">Init_PPU_And_MainLoop</span>lda     #$00                    
 bfcc: a2 00                        ldx     #$00                    
 bfce: 95 00        <span id="L_bfce">L_bfce</span>          sta     $00,X                   
 bfd0: e8                           inx                             
@@ -4511,7 +4512,7 @@ c023: a9 02                        lda     #$02
 c025: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
 c028: a9 00                        lda     #$00                    
 c02a: 8d c5 07                     sta     $07c5                   
-c02d: 4c c0 c2                     jmp     <a href="#L_c2c0">L_c2c0</a>                  
+c02d: 4c c0 c2                     jmp     <a href="#Main_Loop">Main_Loop</a>               
 c030: 85 63        <span id="NMI_Handler">NMI_Handler</span>     sta     NMI_SaveA               ; NMI entry point
 c032: 86 64                        stx     $64                     
 c034: 84 65                        sty     NMI_SaveY               
@@ -4606,7 +4607,7 @@ c0fd: a2 ff                        ldx     #$ff
 c0ff: 9a                           txs                             
 c100: 20 ea a0                     jsr     <a href="#L_a0ea">L_a0ea</a>                  
 c103: 20 ad c1                     jsr     <a href="#L_c1ad">L_c1ad</a>                  
-c106: e6 62                        inc     $62                     
+c106: e6 62                        inc     VBlank_Counter          
 c108: a2 00                        ldx     #$00                    
 c10a: a9 c0                        lda     #$c0                    
 c10c: e8           <span id="L_c10c">L_c10c</span>          inx                             
@@ -4792,7 +4793,7 @@ c267: a5 86                        lda     $86
 c269: 95 22                        sta     $22,X                   
 c26b: a5 87                        lda     PPU_WriteCount          
 c26d: 95 23                        sta     $23,X                   
-c26f: 4c c0 c2                     jmp     <a href="#L_c2c0">L_c2c0</a>                  
+c26f: 4c c0 c2                     jmp     <a href="#Main_Loop">Main_Loop</a>               
 c272: 20 75 c2                     .byte   $20, $75, $c2
 c275: 08           <span id="L_c275">L_c275</span>          php                             
 c276: 48                           pha                             
@@ -4805,7 +4806,7 @@ c27f: ba                           tsx
 c280: 8a                           txa                             
 c281: a6 00                        ldx     $00                     
 c283: 95 03                        sta     $03,X                   
-c285: 4c c0 c2                     jmp     <a href="#L_c2c0">L_c2c0</a>                  
+c285: 4c c0 c2                     jmp     <a href="#Main_Loop">Main_Loop</a>               
 c288: 08           <span id="L_c288">L_c288</span>          php                             
 c289: 48                           pha                             
 c28a: 85 66                        sta     $66                     
@@ -4834,7 +4835,7 @@ c2b2: d0 03                        bne     <a href="#L_c2b7">L_c2b7</a>
 c2b4: 4c 30 c2                     jmp     <a href="#L_c230">L_c230</a>                  
 c2b7: b5 02 09 01 ..<span id="D_c2b7">D_c2b7</span>          .byte   $b5, $02, $09, $01, $95, $02, $4c, $30
 c2bf: c2                           .byte   $c2
-c2c0: a6 00        <span id="L_c2c0">L_c2c0</span>          ldx     $00                     
+c2c0: a6 00        <span id="Main_Loop">Main_Loop</span>       ldx     $00                     
 c2c2: e0 20                        cpx     #$20                    
 c2c4: f0 12                        beq     <a href="#L_c2d8">L_c2d8</a>                  
 c2c6: a9 20                        lda     #$20                    
@@ -4857,12 +4858,12 @@ c2df: a5 8c                        lda     PPUCTRL_Shadow
 c2e1: 09 80                        ora     #$80                    
 c2e3: 85 8c                        sta     PPUCTRL_Shadow          
 c2e5: 8d 00 20                     sta     PPUCTRL                 
-c2e8: a5 62        <span id="L_c2e8">L_c2e8</span>          lda     $62                     
+c2e8: a5 62        <span id="L_c2e8">L_c2e8</span>          lda     VBlank_Counter          
 c2ea: c9 03                        cmp     #$03                    
 c2ec: 90 fa                        bcc     <a href="#L_c2e8">L_c2e8</a>                  
 c2ee: a9 00                        lda     #$00                    
-c2f0: 85 62                        sta     $62                     
-c2f2: 4c c0 c2                     jmp     <a href="#L_c2c0">L_c2c0</a>                  
+c2f0: 85 62                        sta     VBlank_Counter          
+c2f2: 4c c0 c2                     jmp     <a href="#Main_Loop">Main_Loop</a>               
 c2f5: 86 00        <span id="L_c2f5">L_c2f5</span>          stx     $00                     
 c2f7: b5 03                        lda     $03,X                   
 c2f9: aa                           tax                             
