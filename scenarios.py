@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""Scripted scenario harness for label discovery.
+
+Each scenario boots 1942 through nes-py, holds predefined button actions
+for predefined frame counts, and snapshots RAM at each checkpoint. The
+correlator then joins every changed RAM byte to the STA/STX/STY
+instructions in the disassembly that write it, producing a tight list
+the user can read and name.
+
+Typical loop:
+
+    python3 scenarios.py press_start
+    # -> inspect the report, identify interesting RAM writes
+    # -> add "$0711": ["Fire_Cooldown", "..."] to labels.json
+    python3 disasm.py 1942.nes -o 1942.html
+"""
+
+import argparse
+import os
+import sys
+import warnings
+from dataclasses import dataclass, field
+from typing import List, Tuple
+
+warnings.filterwarnings('ignore')
+os.environ.setdefault('PYTHONWARNINGS', 'ignore')
+
+import disasm
+
+
+# nes-py's strict iNES parser rejects headers with non-zero flags7..15.
+# Retail dumps often have flags7=$08; patch a working copy to zero those
+# bytes so the emulator accepts the ROM.
+def ensure_fixed_rom(src_path):
+    with open(src_path, 'rb') as f:
+        data = bytearray(f.read())
+    if data[7:16] == bytes(9):
+        return src_path
+    data[7:16] = bytes(9)
+    fixed = src_path.rsplit('.', 1)[0] + '.fixed.nes'
+    with open(fixed, 'wb') as f:
+        f.write(data)
+    return fixed
+
+
+# Joypad bit layout per nes-py JoypadSpace._button_map:
+#   A=0x01  B=0x02  SELECT=0x04  START=0x08
+#   UP=0x10 DOWN=0x20 LEFT=0x40 RIGHT=0x80
+A, B, SELECT, START = 0x01, 0x02, 0x04, 0x08
+UP, DOWN, LEFT, RIGHT = 0x10, 0x20, 0x40, 0x80
+
+
+@dataclass
+class Scenario:
+    name: str
+    # Each step: (action_byte, frame_count). action_byte is a bitmask of
+    # buttons to hold for that many frames.
+    steps: List[Tuple[int, int]]
+    # Step indices (0-based, into `steps`) after which RAM should be
+    # snapshotted. The baseline snapshot (before any step) is always
+    # captured as checkpoint 0; step-indexed checkpoints follow it.
+    checkpoints: List[int] = field(default_factory=list)
+    # Short description for the report header.
+    description: str = ''
+
+
+_boot_steps = [(0, 30), (0, 210)]
+
+_press_start_steps = [
+    (0, 240),
+    (START, 6), (0, 12),
+    (START, 6), (0, 12),
+    (START, 6), (0, 12),
+    (START, 6), (0, 12),
+    (0, 240),
+]
+
+SCENARIOS = {
+    'boot': Scenario(
+        name='boot',
+        description=('30 idle frames, then 210 more idle — baseline '
+                     'reset/init churn only; diff shows what changes '
+                     'during pure attract-screen waiting'),
+        steps=_boot_steps,
+        checkpoints=[0, len(_boot_steps) - 1],
+    ),
+    'press_start': Scenario(
+        name='press_start',
+        description=('240 idle frames, then 4× (6 frames START + 12 idle), '
+                     'then 240 idle — reaches the in-game state where '
+                     'Lives_Ones / Rolls / Level are initialized'),
+        steps=_press_start_steps,
+        checkpoints=[0, len(_press_start_steps) - 1],
+    ),
+}
+
+
+def run(rom_path, scenario):
+    """Execute scenario on nes-py. Returns list of 2-KiB RAM snapshots,
+    one per checkpoint, in the order given by scenario.checkpoints."""
+    from nes_py import NESEnv  # imported lazily so `--list` works without nes-py
+    env = NESEnv(rom_path)
+    env.reset()
+    snapshots = {}
+
+    # Prime the emulator with one no-op step so env.ram is populated.
+    env.step(0)
+
+    for i, (action, frames) in enumerate(scenario.steps):
+        for _ in range(frames):
+            _, _, done, _ = env.step(action)
+            if done:
+                env.reset()
+        if i in scenario.checkpoints:
+            snapshots[i] = env.ram.copy()
+
+    env.close()
+    return [snapshots[i] for i in scenario.checkpoints]
+
+
+def diff(a, b, exclude=((0x200, 0x300),)):
+    """Return (addr, a[addr], b[addr]) tuples for every differing byte,
+    excluding ranges in `exclude` (half-open intervals). The default
+    excludes sprite OAM, which churns every frame and drowns out signal."""
+    out = []
+    for addr in range(len(a)):
+        if any(lo <= addr < hi for (lo, hi) in exclude):
+            continue
+        if a[addr] != b[addr]:
+            out.append((addr, int(a[addr]), int(b[addr])))
+    return out
+
+
+def correlate(dis, changes):
+    """For each changed RAM address, return the sorted list of PCs that
+    store to it. Both zp and abs stores key on the same integer for
+    addresses <$100, so a single lookup covers both modes."""
+    return {addr: sorted(set(dis.writes_to(addr)))
+            for addr, _, _ in changes}
+
+
+def format_label(addr, ram_labels):
+    name = ram_labels.get(addr)
+    if name:
+        return name[0]
+    if addr in disasm.HW_REGS:
+        return disasm.HW_REGS[addr]
+    return ''
+
+
+def report(scenario, changes, correlations, ram_labels):
+    lines = []
+    lines.append(f'# scenario: {scenario.name}')
+    if scenario.description:
+        lines.append(f'# {scenario.description}')
+    lines.append(f'# {len(changes)} RAM bytes changed (sprite OAM excluded)')
+    lines.append('')
+    lines.append(f'{"addr":<8}{"before":<8}{"after":<8}'
+                 f'{"label":<18}write-sites')
+    lines.append('-' * 72)
+    for addr, a, b in changes:
+        pcs = correlations.get(addr, [])
+        pc_str = ', '.join(f'L_{pc:04x}' for pc in sorted(set(pcs))) or '-'
+        label = format_label(addr, ram_labels)
+        lines.append(f'${addr:04x}   ${a:02x}     ${b:02x}     '
+                     f'{label:<18}{pc_str}')
+    return '\n'.join(lines)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('scenario', nargs='?',
+                    help='scenario name (see --list for options)')
+    ap.add_argument('--rom', default='1942.nes',
+                    help='path to ROM (default: 1942.nes)')
+    ap.add_argument('--labels', default='labels.json',
+                    help='path to user label overlay (default: labels.json)')
+    ap.add_argument('--list', action='store_true',
+                    help='list available scenarios and exit')
+    args = ap.parse_args()
+
+    if args.list or not args.scenario:
+        print('available scenarios:')
+        for s in SCENARIOS.values():
+            print(f'  {s.name:<14s} {s.description}')
+        return 0 if args.list else 1
+
+    if args.scenario not in SCENARIOS:
+        sys.exit(f'unknown scenario: {args.scenario}. Try --list.')
+    scenario = SCENARIOS[args.scenario]
+
+    if not os.path.exists(args.rom):
+        sys.exit(f'ROM not found: {args.rom}')
+    rom_path = ensure_fixed_rom(args.rom)
+
+    # Load disassembly once; correlator queries write_sites.
+    rom = disasm.load_ines(args.rom)
+    dis = disasm.Disassembler(rom['prg'])
+    dis.disassemble()
+
+    ram_labels = dict(disasm.RAM_LABELS)
+    ram_labels.update(disasm.load_user_labels(args.labels))
+
+    print(f'running scenario: {scenario.name}', file=sys.stderr)
+    snapshots = run(rom_path, scenario)
+    print(f'captured {len(snapshots)} checkpoint(s)', file=sys.stderr)
+
+    # Report diffs between consecutive checkpoints. For the common case
+    # of 2 checkpoints (baseline + final) this is a single diff.
+    for i in range(1, len(snapshots)):
+        changes = diff(snapshots[i - 1], snapshots[i])
+        correlations = correlate(dis, changes)
+        print()
+        print(f'=== checkpoint {i-1} -> {i} ===')
+        print(report(scenario, changes, correlations, ram_labels))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

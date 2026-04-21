@@ -9,6 +9,8 @@ become anchor links.
 
 import argparse
 import html
+import json
+import os
 import sys
 from collections import defaultdict
 
@@ -124,6 +126,30 @@ VECTOR_LABELS = {
 
 
 # ---------------------------------------------------------------------------
+# User-editable label overlay. Format: {"$0711": ["Fire_Cooldown", "comment"]}.
+# Keys are hex strings (parsed via int(k, 16)); values are [name, comment].
+# Entries merge on top of the hardcoded RAM_LABELS, so additions or
+# overrides persist without touching disasm.py itself.
+# ---------------------------------------------------------------------------
+def load_user_labels(path='labels.json'):
+    if not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        raw = json.load(f)
+    labels = {}
+    for k, v in raw.items():
+        key = k.lstrip('$')  # tolerate "$0711" or "0711"
+        addr = int(key, 16)
+        if isinstance(v, list) and len(v) >= 1:
+            name = v[0]
+            comment = v[1] if len(v) >= 2 else ''
+        else:
+            sys.exit(f'labels.json: value for {k} must be [name, comment]')
+        labels[addr] = (name, comment)
+    return labels
+
+
+# ---------------------------------------------------------------------------
 # iNES loader
 # ---------------------------------------------------------------------------
 def load_ines(path):
@@ -161,8 +187,13 @@ class Disassembler:
         self.is_op_byte = bytearray(0x8000)     # 1 = part of an instruction
         self.code_xref = defaultdict(set)       # target_addr -> {source_addrs}
         self.data_xref = defaultdict(set)       # target_addr -> {source_addrs}
+        self.write_sites = defaultdict(list)    # target_addr -> [pc, ...] for STA/STX/STY
         self.entry_points = set()               # explicit roots (vectors, etc.)
         self.jump_targets = set()               # branch/jmp/jsr destinations
+
+    def writes_to(self, addr):
+        """Return PCs of all STA/STX/STY instructions that write to `addr`."""
+        return list(self.write_sites.get(addr, ()))
 
     def read(self, addr):
         return self.prg[addr - 0x8000]
@@ -284,13 +315,22 @@ class Disassembler:
                     continue
 
                 # Commit the trace. Mark the entry point as a label so it's
-                # visible in the listing as a jump-table target.
+                # visible in the listing as a jump-table target. Also record
+                # write-sites so downstream tools can ask "what code stores
+                # to this RAM address?"
                 if trace:
                     self.jump_targets.add(trace[0][0])
-                for (cur, length, _, _) in trace:
+                for (cur, length, mnemonic, mode) in trace:
                     self.is_code[cur - 0x8000] = 1
                     for i in range(length):
                         self.is_op_byte[cur + i - 0x8000] = 1
+                    if (mnemonic in ('sta', 'stx', 'sty')
+                            and mode in ('abs', 'abx', 'aby', 'zp', 'zpx', 'zpy')):
+                        if mode.startswith('zp'):
+                            target = self.read(cur + 1)
+                        else:
+                            target = self.read_word(cur + 1)
+                        self.write_sites[target].append(cur)
                 for (target, src) in branch_targets:
                     self.jump_targets.add(target)
                     self.code_xref[target].add(src)
@@ -569,9 +609,11 @@ HTML_FOOTER = """</pre>
 """
 
 
-def render(rom, dis, out_path):
+def render(rom, dis, out_path, user_labels=None):
     prg = rom['prg']
     ram_labels = dict(RAM_LABELS)
+    if user_labels:
+        ram_labels.update(user_labels)
     lines = []
 
     # Header banner with iNES + vector info.
@@ -672,6 +714,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('rom')
     ap.add_argument('-o', '--output', required=True)
+    ap.add_argument('--labels', default='labels.json',
+                    help='path to user label overlay (default: labels.json)')
     args = ap.parse_args()
 
     rom = load_ines(args.rom)
@@ -685,7 +729,11 @@ def main():
     print(f'code coverage: {code_bytes}/{len(rom["prg"])} bytes '
           f'({100*code_bytes/len(rom["prg"]):.1f}%)', file=sys.stderr)
     print(f'jump targets:  {len(dis.jump_targets)}', file=sys.stderr)
-    render(rom, dis, args.output)
+    user_labels = load_user_labels(args.labels)
+    if user_labels:
+        print(f'user labels:   {len(user_labels)} from {args.labels}',
+              file=sys.stderr)
+    render(rom, dis, args.output, user_labels=user_labels)
     print(f'wrote {args.output}', file=sys.stderr)
 
 

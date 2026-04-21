@@ -58,16 +58,48 @@ Two scripts sanity-check the output:
 - `roundtrip.py` reparses the generated HTML and confirms that every byte
   in the listing reconstructs the original PRG exactly (no skipped, double-
   emitted, or misaddressed bytes). On 1942: 32768/32768 bytes match.
-- `runtime_probe.py` boots the ROM through `nes-py`, presses Start, and
-  checks that the RAM addresses we labeled (`Score_*`, `Lives_*`, `Rolls`,
-  `Level`) actually hold the values Data Crystal documents once the game
-  is running. For 1942 this confirms `Lives_Ones=$02`, `Rolls=$03`, etc.
+- `scenarios.py press_start` boots the ROM through `nes-py`, presses
+  Start, and checks that the RAM addresses we labeled (`Score_*`,
+  `Lives_*`, `Rolls`, `Level`) actually hold the values Data Crystal
+  documents once the game is running. For 1942 this confirms
+  `Lives_Ones=$02`, `Rolls=$03`, etc.
+
+## Label discovery
+
+`scenarios.py` is a harness for discovering *semantic* labels (real
+routine names, real RAM names) by driving the ROM through scripted
+button inputs and watching which RAM bytes change. Each scenario is a
+list of `(action_bitmask, frame_count)` steps plus a set of checkpoint
+indices. After running, the harness diffs RAM between checkpoints and
+cross-references every changed address against the `STA/STX/STY`
+instructions in the disassembly — so each experiment yields a tight
+list of "address → routine(s) that write it," which you can inspect and
+name.
+
+```
+python3 scenarios.py --list
+python3 scenarios.py press_start
+```
+
+Newly discovered labels go in `labels.json`, a hex-keyed map that
+`disasm.py` merges on top of its hardcoded `RAM_LABELS` at render
+time:
+
+```json
+{
+  "$0711": ["Fire_Cooldown", "decrements each frame while firing"]
+}
+```
+
+Re-run `python3 disasm.py 1942.nes -o 1942.html` after any
+`labels.json` edit to pick up the new names.
 
 ## Files
 
 - `disasm.py` — the disassembler.
+- `scenarios.py` — scripted scenario harness + correlator.
 - `roundtrip.py` — reassembly round-trip check.
-- `runtime_probe.py` — `nes-py` live-RAM validator.
+- `labels.json` — user-editable overlay for RAM labels (starts empty).
 - `1942.html` — pre-rendered example output.
 
 The 1942 ROM itself is not redistributed here — supply your own dump as
@@ -75,6 +107,7 @@ The 1942 ROM itself is not redistributed here — supply your own dump as
 
 ## Adding per-game annotations
 
-RAM labels live in the `RAM_LABELS` dict in `disasm.py`. Each entry maps an
-address to a `(name, comment)` pair. The shipped table covers 1942, sourced
-from [Data Crystal's RAM map](https://datacrystal.tcrf.net/wiki/1942_(NES)/RAM_map).
+For one-off additions, edit `labels.json`. Each entry maps a hex address
+key to `[name, comment]`. The shipped hardcoded table in `disasm.py`
+covers 1942's score / lives / rolls / level bytes, sourced from
+[Data Crystal's RAM map](https://datacrystal.tcrf.net/wiki/1942_(NES)/RAM_map).
