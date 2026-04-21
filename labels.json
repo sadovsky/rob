@@ -1,4 +1,6 @@
 {
+  "$0063": ["NMI_SaveA",      "NMI prologue stash for the A register (restored by the NMI epilogue before RTI)"],
+  "$0065": ["NMI_SaveY",      "NMI prologue stash for the Y register"],
   "$0087": ["PPU_WriteCount", "byte count consumed by PPU_WriteBlock ($801b); 58 write sites across PPU-update code"],
   "$0088": ["PPU_AddrLo",     "low byte of PPU destination address ($2006 target) used by PPU_WriteBlock"],
   "$0089": ["PPU_AddrHi",     "high byte of PPU destination address; $89:$88 is the full $2006 word"],
@@ -14,11 +16,17 @@
   "$0388": ["A_Button_State", "bit $10 = A held this frame (debounce flag set in L_d2aa)"],
   "$0785": ["Buttons_Pressed","current-frame joypad state; A-press handler (L_d2aa) tests bit $40, the input handlers at L_d472 / L_dc54 also consume this"],
 
+  "$03ae": ["PPU_QueueReady", "nonzero -> NMI_Handler walks the PPU_UpdateQueue. NMI clears it on completion ($c07e); set by the queue builder at $81e2"],
+  "$078f": ["PPU_UpdateQueue","variable-length PPU update queue consumed by NMI_Handler. Each entry: addr_hi, addr_lo, count, count×data_byte; queue terminates when count == 0"],
+  "$07bd": ["WarmBoot_Magic1","first half of the warm-boot magic word; Reset_Handler skips RAM-clear when $07bd:$07be == $55:$aa"],
+  "$07be": ["WarmBoot_Magic2","second half of the warm-boot magic word; together with WarmBoot_Magic1 distinguishes warm restart from cold power-on"],
   "$07bc": ["TwoPlayer_Mode", "0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from menu choice, gates 2P paths in Continue_Init_P1 / NewGame_Init_P2"],
   "$0385": ["P1_Active",      "$ff while P1 is the active player; cleared on game-over. Set at $b7da during NewGame_Init_P1"],
   "$0384": ["P2_Active",      "companion to P1_Active; tested by P1_LifeLost at $b80a to decide whether to swap players or game-over"],
 
   "$801b": ["PPU_WriteBlock", "copy PPU_WriteCount bytes from ($PPU_Src),Y to $2007, starting at $2006 = PPU_AddrHi:PPU_AddrLo. Called 25x; the main PPU-update primitive"],
+  "$bf90": ["Reset_Handler",  "RESET / IRQ vector entry: SEI + CLD, set stack to $f3, enable NMI bit, wait for VBlank, then check WarmBoot_Magic. Cold path zeros all of $0000-$07ff and writes the magic; warm path skips the wipe"],
+  "$c030": ["NMI_Handler",    "NMI vector entry: stash A/X/Y to $63-$65, disable NMI bit in $2000, OAM-DMA the shadow OAM at $0200 via $4014, blank rendering, then if PPU_QueueReady drain PPU_UpdateQueue into $2006/$2007 and clear the flag"],
   "$a9ce": ["ReturnCarrySet", "trivial SEC; RTS helper used 8x by callers that want to propagate 'failed/not-found' via carry"],
 
   "$b7d8": ["NewGame_Init_P1","initialize P1 state at game start: clears player flags, sets Lives_Ones = $02 at $b7df (Game Genie IESUTYZA patches the immediate at $b7de). Falls through into the P1 input/play loop"],

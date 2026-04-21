@@ -82,6 +82,8 @@ JOY1         = $4016
 JOY2         = $4017
 
 ; ----- 1942 RAM map (Data Crystal + discoveries) -----
+NMI_SaveA    = $0063  ; NMI prologue stash for the A register (restored by the NMI epilogue before RTI)
+NMI_SaveY    = $0065  ; NMI prologue stash for the Y register
 PPU_WriteCount = $0087  ; byte count consumed by PPU_WriteBlock ($801b); 58 write sites across PPU-update code
 PPU_AddrLo   = $0088  ; low byte of PPU destination address ($2006 target) used by PPU_WriteBlock
 PPU_AddrHi   = $0089  ; high byte of PPU destination address; $89:$88 is the full $2006 word
@@ -92,6 +94,7 @@ A_Hold_Counter = $00db  ; frames the A button has been held; rolls over at 10 an
 P2_Active    = $0384  ; companion to P1_Active; tested by P1_LifeLost at $b80a to decide whether to swap players or game-over
 P1_Active    = $0385  ; $ff while P1 is the active player; cleared on game-over. Set at $b7da during NewGame_Init_P1
 A_Button_State = $0388  ; bit $10 = A held this frame (debounce flag set in L_d2aa)
+PPU_QueueReady = $03ae  ; nonzero -> NMI_Handler walks the PPU_UpdateQueue. NMI clears it on completion ($c07e); set by the queue builder at $81e2
 Player_OAM_Y = $03af  ; shadow-OAM mirror of Entity_Y[0] (player)
 Player_OAM_X = $03b2  ; shadow-OAM mirror of Entity_X[0] (player), written via DMA
 Score_D5     = $0427  ; score digit (100,000s)
@@ -107,7 +110,10 @@ Level        = $0438  ; current stage (00 = stage 1)
 Entity_Y     = $04a7  ; entity vertical position table; index 0 is the player. Player writes: UP drives toward $56 (top), DOWN toward $c1 (bottom)
 Entity_X     = $04c0  ; entity horizontal position table; index 0 is the player. Player writes: LEFT drives toward $1e (left edge), RIGHT toward $e6 (right edge). Entity code at L_aa61/L_b1d7 reads Entity_X,X / Entity_X,Y
 Buttons_Pressed = $0785  ; current-frame joypad state; A-press handler (L_d2aa) tests bit $40, the input handlers at L_d472 / L_dc54 also consume this
+PPU_UpdateQueue = $078f  ; variable-length PPU update queue consumed by NMI_Handler. Each entry: addr_hi, addr_lo, count, count×data_byte; queue terminates when count == 0
 TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from menu choice, gates 2P paths in Continue_Init_P1 / NewGame_Init_P2
+WarmBoot_Magic1 = $07bd  ; first half of the warm-boot magic word; Reset_Handler skips RAM-clear when $07bd:$07be == $55:$aa
+WarmBoot_Magic2 = $07be  ; second half of the warm-boot magic word; together with WarmBoot_Magic1 distinguishes warm restart from cold power-on
 
 8000: a9 1e        <span id="L_8000">L_8000</span>          lda     #$1e                    
 8002: 8d 8e 03                     sta     $038e                   
@@ -230,13 +236,13 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 8123: 20 6c 82                     jsr     <a href="#L_826c">L_826c</a>                  
 8126: a5 8b                        lda     PPU_SrcHi               
 8128: a2 00                        ldx     #$00                    
-812a: 9d 8f 07                     sta     $078f,X                 
+812a: 9d 8f 07                     sta     PPU_UpdateQueue,X       
 812d: e8                           inx                             
 812e: a5 8a                        lda     PPU_SrcLo               
-8130: 9d 8f 07                     sta     $078f,X                 
+8130: 9d 8f 07                     sta     PPU_UpdateQueue,X       
 8133: e8                           inx                             
 8134: a9 00                        lda     #$00                    
-8136: 9d 8f 07                     sta     $078f,X                 
+8136: 9d 8f 07                     sta     PPU_UpdateQueue,X       
 8139: 86 87                        stx     PPU_WriteCount          
 813b: e8                           inx                             
 813c: a9 00                        lda     #$00                    
@@ -253,7 +259,7 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 8155: c8                           iny                             
 8156: c8                           iny                             
 8157: b1 8a        <span id="L_8157">L_8157</span>          lda     ($8a),Y                 
-8159: 9d 8f 07                     sta     $078f,X                 
+8159: 9d 8f 07                     sta     PPU_UpdateQueue,X       
 815c: e8                           inx                             
 815d: e6 86                        inc     $86                     
 815f: e6 88                        inc     PPU_AddrLo              
@@ -267,7 +273,7 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 8170: c8                           iny                             
 8171: c8                           iny                             
 8172: b1 8a        <span id="L_8172">L_8172</span>          lda     ($8a),Y                 
-8174: 9d 8f 07                     sta     $078f,X                 
+8174: 9d 8f 07                     sta     PPU_UpdateQueue,X       
 8177: e8                           inx                             
 8178: e6 86                        inc     $86                     
 817a: e6 88                        inc     PPU_AddrLo              
@@ -289,16 +295,16 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 819e: 4c 4c 81                     jmp     <a href="#L_814c">L_814c</a>                  
 81a1: a4 87        <span id="L_81a1">L_81a1</span>          ldy     PPU_WriteCount          
 81a3: a5 88                        lda     PPU_AddrLo              
-81a5: 99 8f 07                     sta     $078f,Y                 
+81a5: 99 8f 07                     sta     PPU_UpdateQueue,Y       
 81a8: a9 00                        lda     #$00                    
 81aa: 85 88                        sta     PPU_AddrLo              
 81ac: b9 8d 07                     lda     $078d,Y                 
 81af: 49 04                        eor     #$04                    
-81b1: 9d 8f 07                     sta     $078f,X                 
+81b1: 9d 8f 07                     sta     PPU_UpdateQueue,X       
 81b4: e8                           inx                             
 81b5: b9 8e 07                     lda     $078e,Y                 
 81b8: 29 e0                        and     #$e0                    
-81ba: 9d 8f 07                     sta     $078f,X                 
+81ba: 9d 8f 07                     sta     PPU_UpdateQueue,X       
 81bd: e8                           inx                             
 81be: 86 87                        stx     PPU_WriteCount          
 81c0: e8                           inx                             
@@ -310,12 +316,12 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 81ce: 4c 4c 81                     jmp     <a href="#L_814c">L_814c</a>                  
 81d1: 20 b9 82     <span id="L_81d1">L_81d1</span>          jsr     <a href="#L_82b9">L_82b9</a>                  
 81d4: a9 00                        lda     #$00                    
-81d6: 9d 8f 07                     sta     $078f,X                 
+81d6: 9d 8f 07                     sta     PPU_UpdateQueue,X       
 81d9: a5 88                        lda     PPU_AddrLo              
 81db: a6 87                        ldx     PPU_WriteCount          
-81dd: 9d 8f 07                     sta     $078f,X                 
+81dd: 9d 8f 07                     sta     PPU_UpdateQueue,X       
 81e0: a9 ff                        lda     #$ff                    
-81e2: 8d ae 03                     sta     $03ae                   
+81e2: 8d ae 03                     sta     PPU_QueueReady          
 81e5: 60                           rts                             
 81e6: ad 99 03     <span id="L_81e6">L_81e6</span>          lda     $0399                   
 81e9: 49 ff                        eor     #$ff                    
@@ -1500,7 +1506,7 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 9e18: 84 67                        sty     $67                     
 9e1a: 65 84                        adc     $84                     
 9e1c: 84 64                        sty     $64                     
-9e1e: 65 65                        adc     $65                     
+9e1e: 65 65                        adc     NMI_SaveY               
 9e20: 64 80 87 8a ..                .byte   $64, $80, $87, $8a, $64, $66, $81, $64
 9e28: 84 88 67 8a ..                .byte   $84, $88, $67, $8a, $68, $8a, $69, $69
 9e30: 88 68 89 68 ..                .byte   $88, $68, $89, $68, $87, $8a, $76, $84
@@ -4108,7 +4114,7 @@ bc8b: a9 00                        lda     #$00
 bc8d: 8d 85 03                     sta     P1_Active               
 bc90: 85 6e                        sta     $6e                     
 bc92: 85 6d                        sta     $6d                     
-bc94: 8d 8f 07                     sta     $078f                   
+bc94: 8d 8f 07                     sta     PPU_UpdateQueue         
 bc97: a9 8f                        lda     #$8f                    
 bc99: 85 6b                        sta     $6b                     
 bc9b: a9 07                        lda     #$07                    
@@ -4350,7 +4356,7 @@ bea0: 8d 23 07                     sta     $0723
 bea3: a9 00                        lda     #$00                    
 bea5: 85 6e                        sta     $6e                     
 bea7: 85 6d                        sta     $6d                     
-bea9: 8d 8f 07                     sta     $078f                   
+bea9: 8d 8f 07                     sta     PPU_UpdateQueue         
 beac: a9 8f                        lda     #$8f                    
 beae: 85 6b                        sta     $6b                     
 beb0: a9 07                        lda     #$07                    
@@ -4429,7 +4435,7 @@ bf88: d0 f7                        bne     <a href="#L_bf81">L_bf81</a>
 bf8a: a9 00                        lda     #$00                    
 bf8c: 8d 86 03                     sta     $0386                   
 bf8f: 60                           rts                             
-bf90: 78           <span id="L_bf90">L_bf90</span>          sei                             ; IRQ/BRK entry point
+bf90: 78           <span id="Reset_Handler">Reset_Handler</span>   sei                             ; IRQ/BRK entry point
 bf91: d8                           cld                             
 bf92: a2 f3                        ldx     #$f3                    
 bf94: 9a                           txs                             
@@ -4437,10 +4443,10 @@ bf95: a9 10                        lda     #$10
 bf97: 8d 00 20                     sta     PPUCTRL                 
 bf9a: ad 02 20     <span id="L_bf9a">L_bf9a</span>          lda     PPUSTATUS               
 bf9d: 10 fb                        bpl     <a href="#L_bf9a">L_bf9a</a>                  
-bf9f: ad bd 07                     lda     $07bd                   
+bf9f: ad bd 07                     lda     WarmBoot_Magic1         
 bfa2: c9 55                        cmp     #$55                    
 bfa4: d0 07                        bne     <a href="#L_bfad">L_bfad</a>                  
-bfa6: ad be 07                     lda     $07be                   
+bfa6: ad be 07                     lda     WarmBoot_Magic2         
 bfa9: c9 aa                        cmp     #$aa                    
 bfab: f0 1d                        beq     <a href="#L_bfca">L_bfca</a>                  
 bfad: a9 07        <span id="L_bfad">L_bfad</span>          lda     #$07                    
@@ -4454,9 +4460,9 @@ bfba: d0 fb                        bne     <a href="#L_bfb7">L_bfb7</a>
 bfbc: c6 8b                        dec     PPU_SrcHi               
 bfbe: d0 f7                        bne     <a href="#L_bfb7">L_bfb7</a>                  
 bfc0: a9 55                        lda     #$55                    
-bfc2: 8d bd 07                     sta     $07bd                   
+bfc2: 8d bd 07                     sta     WarmBoot_Magic1         
 bfc5: a9 aa                        lda     #$aa                    
-bfc7: 8d be 07                     sta     $07be                   
+bfc7: 8d be 07                     sta     WarmBoot_Magic2         
 bfca: a9 00        <span id="L_bfca">L_bfca</span>          lda     #$00                    
 bfcc: a2 00                        ldx     #$00                    
 bfce: 95 00        <span id="L_bfce">L_bfce</span>          sta     $00,X                   
@@ -4502,9 +4508,9 @@ c025: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>
 c028: a9 00                        lda     #$00                    
 c02a: 8d c5 07                     sta     $07c5                   
 c02d: 4c c0 c2                     jmp     <a href="#L_c2c0">L_c2c0</a>                  
-c030: 85 63        <span id="L_c030">L_c030</span>          sta     $63                     ; NMI entry point
+c030: 85 63        <span id="NMI_Handler">NMI_Handler</span>     sta     NMI_SaveA               ; NMI entry point
 c032: 86 64                        stx     $64                     
-c034: 84 65                        sty     $65                     
+c034: 84 65                        sty     NMI_SaveY               
 c036: a5 8c                        lda     PPUCTRL_Shadow          
 c038: 29 7f                        and     #$7f                    
 c03a: 8d 00 20                     sta     PPUCTRL                 
@@ -4515,28 +4521,28 @@ c044: a9 02                        lda     #$02
 c046: 8d 14 40                     sta     OAMDMA                  
 c049: a9 00                        lda     #$00                    
 c04b: 8d 01 20                     sta     PPUMASK                 
-c04e: ad ae 03                     lda     $03ae                   
+c04e: ad ae 03                     lda     PPU_QueueReady          
 c051: f0 2e                        beq     <a href="#L_c081">L_c081</a>                  
 c053: a2 00                        ldx     #$00                    
 c055: 86 cf                        stx     $cf                     
-c057: bd 8f 07     <span id="L_c057">L_c057</span>          lda     $078f,X                 
+c057: bd 8f 07     <span id="L_c057">L_c057</span>          lda     PPU_UpdateQueue,X       
 c05a: f0 22                        beq     <a href="#L_c07e">L_c07e</a>                  
 c05c: ad 02 20                     lda     PPUSTATUS               
-c05f: bd 8f 07                     lda     $078f,X                 
+c05f: bd 8f 07                     lda     PPU_UpdateQueue,X       
 c062: 8d 06 20                     sta     PPUADDR                 
 c065: e8                           inx                             
-c066: bd 8f 07                     lda     $078f,X                 
+c066: bd 8f 07                     lda     PPU_UpdateQueue,X       
 c069: 8d 06 20                     sta     PPUADDR                 
 c06c: e8                           inx                             
-c06d: bc 8f 07                     ldy     $078f,X                 
+c06d: bc 8f 07                     ldy     PPU_UpdateQueue,X       
 c070: e8                           inx                             
-c071: bd 8f 07     <span id="L_c071">L_c071</span>          lda     $078f,X                 
+c071: bd 8f 07     <span id="L_c071">L_c071</span>          lda     PPU_UpdateQueue,X       
 c074: 8d 07 20                     sta     PPUDATA                 
 c077: e8                           inx                             
 c078: 88                           dey                             
 c079: d0 f6                        bne     <a href="#L_c071">L_c071</a>                  
 c07b: 4c 57 c0                     jmp     <a href="#L_c057">L_c057</a>                  
-c07e: 8d ae 03     <span id="L_c07e">L_c07e</span>          sta     $03ae                   
+c07e: 8d ae 03     <span id="L_c07e">L_c07e</span>          sta     PPU_QueueReady          
 c081: a0 00        <span id="L_c081">L_c081</span>          ldy     #$00                    
 c083: ae 02 20                     ldx     PPUSTATUS               
 c086: a5 d1                        lda     $d1                     
@@ -4670,9 +4676,9 @@ c19d: a5 8c        <span id="L_c19d">L_c19d</span>          lda     PPUCTRL_Shad
 c19f: 09 80                        ora     #$80                    
 c1a1: 8d 00 20                     sta     PPUCTRL                 
 c1a4: 85 8c                        sta     PPUCTRL_Shadow          
-c1a6: a4 65                        ldy     $65                     
+c1a6: a4 65                        ldy     NMI_SaveY               
 c1a8: a6 64                        ldx     $64                     
-c1aa: a5 63                        lda     $63                     
+c1aa: a5 63                        lda     NMI_SaveA               
 c1ac: 40                           rti                             
 c1ad: a9 01        <span id="L_c1ad">L_c1ad</span>          lda     #$01                    
 c1af: 8d 16 40                     sta     JOY1                    
@@ -9231,9 +9237,9 @@ ffe5: 01 50 00     <span id="D_ffe5">D_ffe5</span>          .byte   $01, $50, $0
 ffe8: 98 00 a0 00 ..<span id="D_ffe8">D_ffe8</span>          .byte   $98, $00, $a0, $00, $b0, $01, $50, $00
 fff0: a8 01 00 00 ..                .byte   $a8, $01, $00, $00, $90, $01, $00, $00
 fff8: 40 ff                        .byte   $40, $ff
-fffa: 30 c0        <span id="NMIVector">NMIVector</span>       .word   <a href="#L_c030">L_c030</a>                  ; NMI vector
-fffc: 90 bf        <span id="ResetVector">ResetVector</span>     .word   <a href="#L_bf90">L_bf90</a>                  ; RESET vector
-fffe: 90 bf        <span id="IRQVector">IRQVector</span>       .word   <a href="#L_bf90">L_bf90</a>                  ; IRQ/BRK vector
+fffa: 30 c0        <span id="NMIVector">NMIVector</span>       .word   <a href="#NMI_Handler">NMI_Handler</a>             ; NMI vector
+fffc: 90 bf        <span id="ResetVector">ResetVector</span>     .word   <a href="#Reset_Handler">Reset_Handler</a>           ; RESET vector
+fffe: 90 bf        <span id="IRQVector">IRQVector</span>       .word   <a href="#Reset_Handler">Reset_Handler</a>           ; IRQ/BRK vector
 </pre>
 </body>
 </html>
