@@ -82,12 +82,18 @@ JOY1         = $4016
 JOY2         = $4017
 
 ; ----- 1942 RAM map (Data Crystal + discoveries) -----
+PPU_WriteCount = $0087  ; byte count consumed by PPU_WriteBlock ($801b); 58 write sites across PPU-update code
+PPU_AddrLo   = $0088  ; low byte of PPU destination address ($2006 target) used by PPU_WriteBlock
+PPU_AddrHi   = $0089  ; high byte of PPU destination address; $89:$88 is the full $2006 word
+PPU_SrcLo    = $008a  ; low byte of source pointer read by PPU_WriteBlock at STA $2007; zero-page ($8a),Y fetch
+PPU_SrcHi    = $008b  ; high byte of source pointer ($8b:$8a) used by PPU_WriteBlock
+PPUCTRL_Shadow = $008c  ; mirror of last value written to $2000; flipping bit $80 gates NMI and is reapplied across routines
 A_Hold_Counter = $00db  ; frames the A button has been held; rolls over at 10 and triggers L_d3b9 (roll attempt)
 P2_Active    = $0384  ; companion to P1_Active; tested by P1_LifeLost at $b80a to decide whether to swap players or game-over
 P1_Active    = $0385  ; $ff while P1 is the active player; cleared on game-over. Set at $b7da during NewGame_Init_P1
 A_Button_State = $0388  ; bit $10 = A held this frame (debounce flag set in L_d2aa)
-Player_OAM_Y = $03af  ; shadow-OAM mirror of Player_Y
-Player_OAM_X = $03b2  ; shadow-OAM mirror of Player_X (same value, written via DMA)
+Player_OAM_Y = $03af  ; shadow-OAM mirror of Entity_Y[0] (player)
+Player_OAM_X = $03b2  ; shadow-OAM mirror of Entity_X[0] (player), written via DMA
 Score_D5     = $0427  ; score digit (100,000s)
 Score_D4     = $0428  ; score digit (10,000s)
 Score_D3     = $0429  ; score digit (1,000s)
@@ -98,8 +104,8 @@ Lives_Tens   = $0431  ; lives tens digit
 Lives_Ones   = $0432  ; lives ones digit (starts at 02)
 Rolls        = $0436  ; special rolls remaining (starts at 03)
 Level        = $0438  ; current stage (00 = stage 1)
-Player_Y     = $04a7  ; vertical position; UP held drives toward $56 (top), DOWN toward $c1 (bottom)
-Player_X     = $04c0  ; horizontal position; LEFT held drives toward $1e (left edge), RIGHT toward $e6 (right edge)
+Entity_Y     = $04a7  ; entity vertical position table; index 0 is the player. Player writes: UP drives toward $56 (top), DOWN toward $c1 (bottom)
+Entity_X     = $04c0  ; entity horizontal position table; index 0 is the player. Player writes: LEFT drives toward $1e (left edge), RIGHT toward $e6 (right edge). Entity code at L_aa61/L_b1d7 reads Entity_X,X / Entity_X,Y
 Buttons_Pressed = $0785  ; current-frame joypad state; A-press handler (L_d2aa) tests bit $40, the input handlers at L_d472 / L_dc54 also consume this
 TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from menu choice, gates 2P paths in Continue_Init_P1 / NewGame_Init_P2
 
@@ -114,26 +120,26 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 8015: ce 8e 03                     dec     $038e                   
 8018: d0 eb                        bne     <a href="#L_8005">L_8005</a>                  
 801a: 60                           rts                             
-801b: a5 8c        <span id="L_801b">L_801b</span>          lda     $8c                     
+801b: a5 8c        <span id="PPU_WriteBlock">PPU_WriteBlock</span>  lda     PPUCTRL_Shadow          
 801d: 29 7f                        and     #$7f                    
-801f: 85 8c                        sta     $8c                     
+801f: 85 8c                        sta     PPUCTRL_Shadow          
 8021: 8d 00 20                     sta     PPUCTRL                 
 8024: a9 00                        lda     #$00                    
 8026: 8d 01 20                     sta     PPUMASK                 
 8029: ad 02 20                     lda     PPUSTATUS               
-802c: a5 89                        lda     $89                     
+802c: a5 89                        lda     PPU_AddrHi              
 802e: 8d 06 20                     sta     PPUADDR                 
-8031: a5 88                        lda     $88                     
+8031: a5 88                        lda     PPU_AddrLo              
 8033: 8d 06 20                     sta     PPUADDR                 
 8036: a0 00                        ldy     #$00                    
 8038: b1 8a        <span id="L_8038">L_8038</span>          lda     ($8a),Y                 
 803a: 8d 07 20                     sta     PPUDATA                 
 803d: c8                           iny                             
-803e: c6 87                        dec     $87                     
+803e: c6 87                        dec     PPU_WriteCount          
 8040: d0 f6                        bne     <a href="#L_8038">L_8038</a>                  
-8042: a5 8c                        lda     $8c                     
+8042: a5 8c                        lda     PPUCTRL_Shadow          
 8044: 09 80                        ora     #$80                    
-8046: 85 8c                        sta     $8c                     
+8046: 85 8c                        sta     PPUCTRL_Shadow          
 8048: 8d 00 20                     sta     PPUCTRL                 
 804b: 60                           rts                             
 804c: 18           <span id="L_804c">L_804c</span>          clc                             
@@ -180,10 +186,10 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 80b8: 0a                           asl     A                       
 80b9: 29 02                        and     #$02                    
 80bb: 85 86                        sta     $86                     
-80bd: a5 8c                        lda     $8c                     
+80bd: a5 8c                        lda     PPUCTRL_Shadow          
 80bf: 29 fd                        and     #$fd                    
 80c1: 05 86                        ora     $86                     
-80c3: 85 8c                        sta     $8c                     
+80c3: 85 8c                        sta     PPUCTRL_Shadow          
 80c5: a9 00                        lda     #$00                    
 80c7: 8d a4 03                     sta     $03a4                   
 80ca: 8d a5 03                     sta     $03a5                   
@@ -222,20 +228,20 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 811d: 8d 96 03                     sta     $0396                   
 8120: 20 e6 81                     jsr     <a href="#L_81e6">L_81e6</a>                  
 8123: 20 6c 82                     jsr     <a href="#L_826c">L_826c</a>                  
-8126: a5 8b                        lda     $8b                     
+8126: a5 8b                        lda     PPU_SrcHi               
 8128: a2 00                        ldx     #$00                    
 812a: 9d 8f 07                     sta     $078f,X                 
 812d: e8                           inx                             
-812e: a5 8a                        lda     $8a                     
+812e: a5 8a                        lda     PPU_SrcLo               
 8130: 9d 8f 07                     sta     $078f,X                 
 8133: e8                           inx                             
 8134: a9 00                        lda     #$00                    
 8136: 9d 8f 07                     sta     $078f,X                 
-8139: 86 87                        stx     $87                     
+8139: 86 87                        stx     PPU_WriteCount          
 813b: e8                           inx                             
 813c: a9 00                        lda     #$00                    
 813e: 85 86                        sta     $86                     
-8140: 85 88                        sta     $88                     
+8140: 85 88                        sta     PPU_AddrLo              
 8142: 20 4f 82                     jsr     <a href="#L_824f">L_824f</a>                  
 8145: ad 97 03                     lda     $0397                   
 8148: 29 08                        and     #$08                    
@@ -250,7 +256,7 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 8159: 9d 8f 07                     sta     $078f,X                 
 815c: e8                           inx                             
 815d: e6 86                        inc     $86                     
-815f: e6 88                        inc     $88                     
+815f: e6 88                        inc     PPU_AddrLo              
 8161: a5 86                        lda     $86                     
 8163: c9 22                        cmp     #$22                    
 8165: f0 6a                        beq     <a href="#L_81d1">L_81d1</a>                  
@@ -264,7 +270,7 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 8174: 9d 8f 07                     sta     $078f,X                 
 8177: e8                           inx                             
 8178: e6 86                        inc     $86                     
-817a: e6 88                        inc     $88                     
+817a: e6 88                        inc     PPU_AddrLo              
 817c: a5 86                        lda     $86                     
 817e: c9 22                        cmp     #$22                    
 8180: f0 4f                        beq     <a href="#L_81d1">L_81d1</a>                  
@@ -281,11 +287,11 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 8198: ee aa 03                     inc     $03aa                   
 819b: 20 4f 82                     jsr     <a href="#L_824f">L_824f</a>                  
 819e: 4c 4c 81                     jmp     <a href="#L_814c">L_814c</a>                  
-81a1: a4 87        <span id="L_81a1">L_81a1</span>          ldy     $87                     
-81a3: a5 88                        lda     $88                     
+81a1: a4 87        <span id="L_81a1">L_81a1</span>          ldy     PPU_WriteCount          
+81a3: a5 88                        lda     PPU_AddrLo              
 81a5: 99 8f 07                     sta     $078f,Y                 
 81a8: a9 00                        lda     #$00                    
-81aa: 85 88                        sta     $88                     
+81aa: 85 88                        sta     PPU_AddrLo              
 81ac: b9 8d 07                     lda     $078d,Y                 
 81af: 49 04                        eor     #$04                    
 81b1: 9d 8f 07                     sta     $078f,X                 
@@ -294,7 +300,7 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 81b8: 29 e0                        and     #$e0                    
 81ba: 9d 8f 07                     sta     $078f,X                 
 81bd: e8                           inx                             
-81be: 86 87                        stx     $87                     
+81be: 86 87                        stx     PPU_WriteCount          
 81c0: e8                           inx                             
 81c1: a9 00                        lda     #$00                    
 81c3: 8d 97 03                     sta     $0397                   
@@ -305,8 +311,8 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 81d1: 20 b9 82     <span id="L_81d1">L_81d1</span>          jsr     <a href="#L_82b9">L_82b9</a>                  
 81d4: a9 00                        lda     #$00                    
 81d6: 9d 8f 07                     sta     $078f,X                 
-81d9: a5 88                        lda     $88                     
-81db: a6 87                        ldx     $87                     
+81d9: a5 88                        lda     PPU_AddrLo              
+81db: a6 87                        ldx     PPU_WriteCount          
 81dd: 9d 8f 07                     sta     $078f,X                 
 81e0: a9 ff                        lda     #$ff                    
 81e2: 8d ae 03                     sta     $03ae                   
@@ -359,61 +365,61 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 824b: 8d ab 03                     sta     $03ab                   
 824e: 60                           rts                             
 824f: a9 00        <span id="L_824f">L_824f</span>          lda     #$00                    
-8251: 85 8b                        sta     $8b                     
+8251: 85 8b                        sta     PPU_SrcHi               
 8253: 20 46 82                     jsr     <a href="#L_8246">L_8246</a>                  
 8256: 0a                           asl     A                       
-8257: 26 8b                        rol     $8b                     
+8257: 26 8b                        rol     PPU_SrcHi               
 8259: 0a                           asl     A                       
-825a: 26 8b                        rol     $8b                     
-825c: 85 8a                        sta     $8a                     
+825a: 26 8b                        rol     PPU_SrcHi               
+825c: 85 8a                        sta     PPU_SrcLo               
 825e: a9 db                        lda     #$db                    
 8260: 18                           clc                             
-8261: 65 8a                        adc     $8a                     
-8263: 85 8a                        sta     $8a                     
+8261: 65 8a                        adc     PPU_SrcLo               
+8263: 85 8a                        sta     PPU_SrcLo               
 8265: a9 9a                        lda     #$9a                    
-8267: 65 8b                        adc     $8b                     
-8269: 85 8b                        sta     $8b                     
+8267: 65 8b                        adc     PPU_SrcHi               
+8269: 85 8b                        sta     PPU_SrcHi               
 826b: 60                           rts                             
 826c: a9 00        <span id="L_826c">L_826c</span>          lda     #$00                    
-826e: 85 8b                        sta     $8b                     
+826e: 85 8b                        sta     PPU_SrcHi               
 8270: ad 9a 03                     lda     $039a                   
 8273: 29 f8                        and     #$f8                    
 8275: 0a                           asl     A                       
-8276: 26 8b                        rol     $8b                     
+8276: 26 8b                        rol     PPU_SrcHi               
 8278: 0a                           asl     A                       
-8279: 26 8b                        rol     $8b                     
-827b: 85 8a                        sta     $8a                     
+8279: 26 8b                        rol     PPU_SrcHi               
+827b: 85 8a                        sta     PPU_SrcLo               
 827d: ad 97 03                     lda     $0397                   
 8280: 4a                           lsr     A                       
 8281: 4a                           lsr     A                       
 8282: 4a                           lsr     A                       
 8283: 18                           clc                             
-8284: 65 8a                        adc     $8a                     
-8286: 85 8a                        sta     $8a                     
-8288: a5 8b                        lda     $8b                     
+8284: 65 8a                        adc     PPU_SrcLo               
+8286: 85 8a                        sta     PPU_SrcLo               
+8288: a5 8b                        lda     PPU_SrcHi               
 828a: 69 00                        adc     #$00                    
-828c: 85 8b                        sta     $8b                     
+828c: 85 8b                        sta     PPU_SrcHi               
 828e: c9 03                        cmp     #$03                    
 8290: d0 13                        bne     <a href="#L_82a5">L_82a5</a>                  
-8292: a5 8a                        lda     $8a                     
+8292: a5 8a                        lda     PPU_SrcLo               
 8294: c9 c0                        cmp     #$c0                    
 8296: 90 0d                        bcc     <a href="#L_82a5">L_82a5</a>                  
 8298: 18                           clc                             
 8299: 69 20                        adc     #$20                    
-829b: 85 8a                        sta     $8a                     
-829d: a5 8b                        lda     $8b                     
+829b: 85 8a                        sta     PPU_SrcLo               
+829d: a5 8b                        lda     PPU_SrcHi               
 829f: 69 00                        adc     #$00                    
 82a1: 29 03                        and     #$03                    
-82a3: 85 8b                        sta     $8b                     
-82a5: a5 8b        <span id="L_82a5">L_82a5</span>          lda     $8b                     
+82a3: 85 8b                        sta     PPU_SrcHi               
+82a5: a5 8b        <span id="L_82a5">L_82a5</span>          lda     PPU_SrcHi               
 82a7: 09 20                        ora     #$20                    
-82a9: 85 8b                        sta     $8b                     
+82a9: 85 8b                        sta     PPU_SrcHi               
 82ab: ad 99 03                     lda     $0399                   
 82ae: 29 01                        and     #$01                    
 82b0: f0 06                        beq     <a href="#L_82b8">L_82b8</a>                  
-82b2: a5 8b                        lda     $8b                     
+82b2: a5 8b                        lda     PPU_SrcHi               
 82b4: 09 08                        ora     #$08                    
-82b6: 85 8b                        sta     $8b                     
+82b6: 85 8b                        sta     PPU_SrcHi               
 82b8: 60           <span id="L_82b8">L_82b8</span>          rts                             
 82b9: a5 ca        <span id="L_82b9">L_82b9</span>          lda     $ca                     
 82bb: 29 01                        and     #$01                    
@@ -422,8 +428,8 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 82c1: a0 40                        ldy     #$40                    
 82c3: 4c ca 82                     jmp     <a href="#L_82ca">L_82ca</a>                  
 82c6: a9 03 a0 00  <span id="D_82c6">D_82c6</span>          .byte   $a9, $03, $a0, $00
-82ca: 85 8b        <span id="L_82ca">L_82ca</span>          sta     $8b                     
-82cc: 84 8a                        sty     $8a                     
+82ca: 85 8b        <span id="L_82ca">L_82ca</span>          sta     PPU_SrcHi               
+82cc: 84 8a                        sty     PPU_SrcLo               
 82ce: ad aa 03                     lda     $03aa                   
 82d1: 29 0f                        and     #$0f                    
 82d3: 4a                           lsr     A                       
@@ -513,13 +519,13 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 83aa: a8                           tay                             
 83ab: b1 dd                        lda     ($dd),Y                 
 83ad: 60                           rts                             
-83ae: a5 87        <span id="L_83ae">L_83ae</span>          lda     $87                     
+83ae: a5 87        <span id="L_83ae">L_83ae</span>          lda     PPU_WriteCount          
 83b0: 29 f8                        and     #$f8                    
-83b2: 85 87                        sta     $87                     
+83b2: 85 87                        sta     PPU_WriteCount          
 83b4: a5 86                        lda     $86                     
 83b6: 29 f8                        and     #$f8                    
 83b8: 85 86                        sta     $86                     
-83ba: a5 89                        lda     $89                     
+83ba: a5 89                        lda     PPU_AddrHi              
 83bc: 29 0f                        and     #$0f                    
 83be: c9 01                        cmp     #$01                    
 83c0: d0 03                        bne     <a href="#L_83c5">L_83c5</a>                  
@@ -530,37 +536,37 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 83dd: 03 4c 10 84 ..                .byte   $03, $4c, $10, $84, $c9, $08, $d0, $03
 83e5: 4c 08 84 c9 ..                .byte   $4c, $08, $84, $c9, $09, $d0, $11, $4c
 83ed: ef 83                        .byte   $ef, $83
-83ef: a5 87        <span id="L_83ef">L_83ef</span>          lda     $87                     
+83ef: a5 87        <span id="L_83ef">L_83ef</span>          lda     PPU_WriteCount          
 83f1: c9 08                        cmp     #$08                    
 83f3: 90 13                        bcc     <a href="#L_8408">L_8408</a>                  
 83f5: 38                           sec                             
 83f6: e9 08                        sbc     #$08                    
-83f8: 85 87                        sta     $87                     
+83f8: 85 87                        sta     PPU_WriteCount          
 83fa: 4c 08 84                     jmp     <a href="#L_8408">L_8408</a>                  
 83fd: a5 87 c9                     .byte   $a5, $87, $c9
 8400: f8           <span id="L_8400">L_8400</span>          sed                             
 8401: b0 05                        bcs     <a href="#L_8408">L_8408</a>                  
 8403: 18                           clc                             
 8404: 69 08                        adc     #$08                    
-8406: 85 87                        sta     $87                     
+8406: 85 87                        sta     PPU_WriteCount          
 8408: a5 86        <span id="L_8408">L_8408</span>          lda     $86                     
 840a: 38                           sec                             
 840b: e9 08                        sbc     #$08                    
 840d: 85 86                        sta     $86                     
 840f: 60                           rts                             
-8410: a5 87        <span id="L_8410">L_8410</span>          lda     $87                     
+8410: a5 87        <span id="L_8410">L_8410</span>          lda     PPU_WriteCount          
 8412: c9 08                        cmp     #$08                    
 8414: 90 13                        bcc     <a href="#L_8429">L_8429</a>                  
 8416: 38                           sec                             
 8417: e9 08                        sbc     #$08                    
-8419: 85 87                        sta     $87                     
+8419: 85 87                        sta     PPU_WriteCount          
 841b: 4c 29 84                     jmp     <a href="#L_8429">L_8429</a>                  
-841e: a5 87        <span id="L_841e">L_841e</span>          lda     $87                     
+841e: a5 87        <span id="L_841e">L_841e</span>          lda     PPU_WriteCount          
 8420: c9 f8                        cmp     #$f8                    
 8422: b0 05                        bcs     <a href="#L_8429">L_8429</a>                  
 8424: 18                           clc                             
 8425: 69 08                        adc     #$08                    
-8427: 85 87                        sta     $87                     
+8427: 85 87                        sta     PPU_WriteCount          
 8429: a5 86        <span id="L_8429">L_8429</span>          lda     $86                     
 842b: 38                           sec                             
 842c: e9 08                        sbc     #$08                    
@@ -1488,7 +1494,7 @@ TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from m
 9e04: 89 77 71 87 ..                .byte   $89, $77, $71, $87, $89, $70, $76, $70
 9e0c: 76 8a 68 77 ..                .byte   $76, $8a, $68, $77, $70
 9e11: 78           <span id="L_9e11">L_9e11</span>          sei                             
-9e12: 84 8a                        sty     $8a                     
+9e12: 84 8a                        sty     PPU_SrcLo               
 9e14: 69 64                        adc     #$64                    
 9e16: 66 78                        ror     $78                     
 9e18: 84 67                        sty     $67                     
@@ -1575,21 +1581,21 @@ a004: c0 06                        cpy     #$06
 a006: d0 f9                        bne     <a href="#L_a001">L_a001</a>                  
 a008: a0 00                        ldy     #$00                    
 a00a: a9 06                        lda     #$06                    
-a00c: 85 87                        sta     $87                     
+a00c: 85 87                        sta     PPU_WriteCount          
 a00e: a9 00        <span id="L_a00e">L_a00e</span>          lda     #$00                    
 a010: 91 77                        sta     ($77),Y                 
 a012: 98                           tya                             
 a013: 18                           clc                             
 a014: 69 08                        adc     #$08                    
 a016: a8                           tay                             
-a017: c6 87                        dec     $87                     
+a017: c6 87                        dec     PPU_WriteCount          
 a019: d0 f3                        bne     <a href="#L_a00e">L_a00e</a>                  
 a01b: a9 00                        lda     #$00                    
-a01d: 85 88                        sta     $88                     
+a01d: 85 88                        sta     PPU_AddrLo              
 a01f: a9 40                        lda     #$40                    
-a021: 85 89                        sta     $89                     
+a021: 85 89                        sta     PPU_AddrHi              
 a023: a9 03                        lda     #$03                    
-a025: 85 87                        sta     $87                     
+a025: 85 87                        sta     PPU_WriteCount          
 a027: a0 00                        ldy     #$00                    
 a029: a9 70        <span id="L_a029">L_a029</span>          lda     #$70                    
 a02b: 91 88                        sta     ($88),Y                 
@@ -1597,7 +1603,7 @@ a02d: c8                           iny
 a02e: c8                           iny                             
 a02f: c8                           iny                             
 a030: c8                           iny                             
-a031: c6 87                        dec     $87                     
+a031: c6 87                        dec     PPU_WriteCount          
 a033: d0 f4                        bne     <a href="#L_a029">L_a029</a>                  
 a035: 20 50 a0                     jsr     <a href="#L_a050">L_a050</a>                  
 a038: a0 05                        ldy     #$05                    
@@ -1631,14 +1637,14 @@ a06b: a8           <span id="L_a06b">L_a06b</span>          tay
 a06c: 4a                           lsr     A                       
 a06d: 4a                           lsr     A                       
 a06e: 4a                           lsr     A                       
-a06f: 85 87                        sta     $87                     
+a06f: 85 87                        sta     PPU_WriteCount          
 a071: a9 41                        lda     #$41                    
 a073: 18                           clc                             
-a074: 65 87                        adc     $87                     
-a076: 85 8a                        sta     $8a                     
+a074: 65 87                        adc     PPU_WriteCount          
+a076: 85 8a                        sta     PPU_SrcLo               
 a078: a9 07                        lda     #$07                    
 a07a: 69 00                        adc     #$00                    
-a07c: 85 8b                        sta     $8b                     
+a07c: 85 8b                        sta     PPU_SrcHi               
 a07e: 98                           tya                             
 a07f: 29 07                        and     #$07                    
 a081: a8                           tay                             
@@ -1654,22 +1660,22 @@ a09f: 85 86        <span id="L_a09f">L_a09f</span>          sta     $86
 a0a1: a9 e2                        lda     #$e2                    
 a0a3: 18                           clc                             
 a0a4: 65 86                        adc     $86                     
-a0a6: 85 8a                        sta     $8a                     
+a0a6: 85 8a                        sta     PPU_SrcLo               
 a0a8: a9 a3                        lda     #$a3                    
 a0aa: 69 00                        adc     #$00                    
-a0ac: 85 8b                        sta     $8b                     
+a0ac: 85 8b                        sta     PPU_SrcHi               
 a0ae: a0 00                        ldy     #$00                    
 a0b0: b1 8a                        lda     ($8a),Y                 
-a0b2: 85 8b                        sta     $8b                     
-a0b4: 06 87                        asl     $87                     
-a0b6: 06 87                        asl     $87                     
-a0b8: 06 87                        asl     $87                     
-a0ba: a4 87                        ldy     $87                     
-a0bc: a5 8b                        lda     $8b                     
+a0b2: 85 8b                        sta     PPU_SrcHi               
+a0b4: 06 87                        asl     PPU_WriteCount          
+a0b6: 06 87                        asl     PPU_WriteCount          
+a0b8: 06 87                        asl     PPU_WriteCount          
+a0ba: a4 87                        ldy     PPU_WriteCount          
+a0bc: a5 8b                        lda     PPU_SrcHi               
 a0be: 91 77                        sta     ($77),Y                 
 a0c0: a9 05                        lda     #$05                    
 a0c2: 18                           clc                             
-a0c3: 65 87                        adc     $87                     
+a0c3: 65 87                        adc     PPU_WriteCount          
 a0c5: a8                           tay                             
 a0c6: a9 3b                        lda     #$3b                    
 a0c8: 91 77                        sta     ($77),Y                 
@@ -1678,9 +1684,9 @@ a0cb: a9 a7                        lda     #$a7
 a0cd: 91 77                        sta     ($77),Y                 
 a0cf: 60                           rts                             
 a0d0: a9 0c        <span id="L_a0d0">L_a0d0</span>          lda     #$0c                    
-a0d2: 85 8a                        sta     $8a                     
+a0d2: 85 8a                        sta     PPU_SrcLo               
 a0d4: a9 40                        lda     #$40                    
-a0d6: 85 8b                        sta     $8b                     
+a0d6: 85 8b                        sta     PPU_SrcHi               
 a0d8: a0 00                        ldy     #$00                    
 a0da: a9 00                        lda     #$00                    
 a0dc: 91 8a                        sta     ($8a),Y                 
@@ -2222,21 +2228,21 @@ a741: f0 04                        beq     <a href="#L_a747">L_a747</a>
 a743: c9 21                        cmp     #$21                    
 a745: 90 0b                        bcc     <a href="#L_a752">L_a752</a>                  
 a747: a9 a7        <span id="L_a747">L_a747</span>          lda     #$a7                    
-a749: 85 8b                        sta     $8b                     
+a749: 85 8b                        sta     PPU_SrcHi               
 a74b: a9 70                        lda     #$70                    
-a74d: 85 8a                        sta     $8a                     
+a74d: 85 8a                        sta     PPU_SrcLo               
 a74f: 4c 5a a7                     jmp     <a href="#L_a75a">L_a75a</a>                  
 a752: a9 a7 85 8b ..<span id="D_a752">D_a752</span>          .byte   $a9, $a7, $85, $8b, $a9, $90, $85, $8a
 a75a: a9 20        <span id="L_a75a">L_a75a</span>          lda     #$20                    
-a75c: 85 87                        sta     $87                     
+a75c: 85 87                        sta     PPU_WriteCount          
 a75e: a9 3f                        lda     #$3f                    
-a760: 85 89                        sta     $89                     
+a760: 85 89                        sta     PPU_AddrHi              
 a762: a9 00                        lda     #$00                    
-a764: 85 88                        sta     $88                     
+a764: 85 88                        sta     PPU_AddrLo              
 a766: a0 00                        ldy     #$00                    
 a768: b1 8a                        lda     ($8a),Y                 
 a76a: 8d ff 07                     sta     $07ff                   
-a76d: 4c 1b 80                     jmp     <a href="#L_801b">L_801b</a>                  
+a76d: 4c 1b 80                     jmp     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 a770: 02 12 38 10 ..                .byte   $02, $12, $38, $10, $02, $38, $1a, $0a
 a778: 02 1a 0a 0f ..                .byte   $02, $1a, $0a, $0f, $02, $10, $00, $0f
 a780: 02 16 10 00 ..                .byte   $02, $16, $10, $00, $02, $20, $28, $16
@@ -2258,35 +2264,35 @@ a7cd: 60 a5 88 18 ..                .byte   $60, $a5, $88, $18, $65, $8a, $85, $
 a7d5: a5 89 65 8b ..                .byte   $a5, $89, $65, $8b, $85, $8b, $60, $a5
 a7dd: 8a           <span id="L_a7dd">L_a7dd</span>          txa                             
 a7de: 38                           sec                             
-a7df: e5 88                        sbc     $88                     
+a7df: e5 88                        sbc     PPU_AddrLo              
 a7e1: b0 02                        bcs     <a href="#L_a7e5">L_a7e5</a>                  
-a7e3: c6 8b                        dec     $8b                     
-a7e5: 85 8a        <span id="L_a7e5">L_a7e5</span>          sta     $8a                     
-a7e7: a5 8b                        lda     $8b                     
+a7e3: c6 8b                        dec     PPU_SrcHi               
+a7e5: 85 8a        <span id="L_a7e5">L_a7e5</span>          sta     PPU_SrcLo               
+a7e7: a5 8b                        lda     PPU_SrcHi               
 a7e9: 38                           sec                             
-a7ea: e5 89                        sbc     $89                     
-a7ec: 85 8b                        sta     $8b                     
+a7ea: e5 89                        sbc     PPU_AddrHi              
+a7ec: 85 8b                        sta     PPU_SrcHi               
 a7ee: 60                           rts                             
 a7ef: a9 00        <span id="L_a7ef">L_a7ef</span>          lda     #$00                    
 a7f1: 8d 8b 03                     sta     $038b                   
-a7f4: a5 8a                        lda     $8a                     
+a7f4: a5 8a                        lda     PPU_SrcLo               
 a7f6: 18                           clc                             
-a7f7: 65 88                        adc     $88                     
+a7f7: 65 88                        adc     PPU_AddrLo              
 a7f9: c9 0a                        cmp     #$0a                    
 a7fb: 90 05                        bcc     <a href="#L_a802">L_a802</a>                  
 a7fd: 38                           sec                             
 a7fe: e9 0a                        sbc     #$0a                    
-a800: e6 8b                        inc     $8b                     
-a802: 85 8a        <span id="L_a802">L_a802</span>          sta     $8a                     
-a804: a5 8b                        lda     $8b                     
+a800: e6 8b                        inc     PPU_SrcHi               
+a802: 85 8a        <span id="L_a802">L_a802</span>          sta     PPU_SrcLo               
+a804: a5 8b                        lda     PPU_SrcHi               
 a806: 18                           clc                             
-a807: 65 89                        adc     $89                     
+a807: 65 89                        adc     PPU_AddrHi              
 a809: c9 0a                        cmp     #$0a                    
 a80b: 90 06                        bcc     <a href="#L_a813">L_a813</a>                  
 a80d: 38                           sec                             
 a80e: e9 0a                        sbc     #$0a                    
 a810: ee 8b 03                     inc     $038b                   
-a813: 85 8b        <span id="L_a813">L_a813</span>          sta     $8b                     
+a813: 85 8b        <span id="L_a813">L_a813</span>          sta     PPU_SrcHi               
 a815: 60                           rts                             
 a816: e6 8a a5 8a ..<span id="D_a816">D_a816</span>          .byte   $e6, $8a, $a5, $8a, $c9, $0a, $f0, $01
 a81e: 60 a9 00 85 ..                .byte   $60, $a9, $00, $85, $8a, $e6, $8b, $a5
@@ -2294,13 +2300,13 @@ a826: 8b c9 0a f0 ..                .byte   $8b, $c9, $0a, $f0, $01, $60, $a9, $
 a82e: 85 8b ee 8b ..                .byte   $85, $8b, $ee, $8b, $03, $60
 a834: a9 00        <span id="L_a834">L_a834</span>          lda     #$00                    
 a836: 85 86                        sta     $86                     
-a838: a5 8a        <span id="L_a838">L_a838</span>          lda     $8a                     
+a838: a5 8a        <span id="L_a838">L_a838</span>          lda     PPU_SrcLo               
 a83a: 38                           sec                             
-a83b: e5 88                        sbc     $88                     
-a83d: 85 8a                        sta     $8a                     
-a83f: a5 8b                        lda     $8b                     
-a841: e5 89                        sbc     $89                     
-a843: 85 8b                        sta     $8b                     
+a83b: e5 88                        sbc     PPU_AddrLo              
+a83d: 85 8a                        sta     PPU_SrcLo               
+a83f: a5 8b                        lda     PPU_SrcHi               
+a841: e5 89                        sbc     PPU_AddrHi              
+a843: 85 8b                        sta     PPU_SrcHi               
 a845: ad 8b 03                     lda     $038b                   
 a848: e9 00                        sbc     #$00                    
 a84a: 8d 8b 03                     sta     $038b                   
@@ -2309,30 +2315,30 @@ a84f: e6 86                        inc     $86
 a851: 4c 38 a8                     jmp     <a href="#L_a838">L_a838</a>                  
 a854: 60           <span id="D_a854">D_a854</span>          .byte   $60
 a855: ad 8b 03     <span id="L_a855">L_a855</span>          lda     $038b                   
-a858: 85 89                        sta     $89                     
-a85a: a5 8b                        lda     $8b                     
-a85c: 85 88                        sta     $88                     
-a85e: a5 8a                        lda     $8a                     
-a860: 85 87                        sta     $87                     
+a858: 85 89                        sta     PPU_AddrHi              
+a85a: a5 8b                        lda     PPU_SrcHi               
+a85c: 85 88                        sta     PPU_AddrLo              
+a85e: a5 8a                        lda     PPU_SrcLo               
+a860: 85 87                        sta     PPU_WriteCount          
 a862: a9 00                        lda     #$00                    
-a864: 85 8b                        sta     $8b                     
-a866: 85 8a                        sta     $8a                     
+a864: 85 8b                        sta     PPU_SrcHi               
+a866: 85 8a                        sta     PPU_SrcLo               
 a868: 8d 8b 03                     sta     $038b                   
 a86b: 85 86                        sta     $86                     
-a86d: 46 89        <span id="L_a86d">L_a86d</span>          lsr     $89                     
-a86f: 66 88                        ror     $88                     
-a871: 66 87                        ror     $87                     
+a86d: 46 89        <span id="L_a86d">L_a86d</span>          lsr     PPU_AddrHi              
+a86f: 66 88                        ror     PPU_AddrLo              
+a871: 66 87                        ror     PPU_WriteCount          
 a873: 66 86                        ror     $86                     
 a875: 06 85                        asl     $85                     
 a877: 90 15                        bcc     <a href="#L_a88e">L_a88e</a>                  
 a879: a5 86                        lda     $86                     
 a87b: 18                           clc                             
-a87c: 65 8a                        adc     $8a                     
-a87e: 85 8a                        sta     $8a                     
-a880: a5 87                        lda     $87                     
-a882: 65 8b                        adc     $8b                     
-a884: 85 8b                        sta     $8b                     
-a886: a5 88                        lda     $88                     
+a87c: 65 8a                        adc     PPU_SrcLo               
+a87e: 85 8a                        sta     PPU_SrcLo               
+a880: a5 87                        lda     PPU_WriteCount          
+a882: 65 8b                        adc     PPU_SrcHi               
+a884: 85 8b                        sta     PPU_SrcHi               
+a886: a5 88                        lda     PPU_AddrLo              
 a888: 6d 8b 03                     adc     $038b                   
 a88b: 8d 8b 03                     sta     $038b                   
 a88e: a5 85        <span id="L_a88e">L_a88e</span>          lda     $85                     
@@ -2358,40 +2364,40 @@ a8c3: 8d 90 03                     sta     $0390
 a8c6: a9 00        <span id="L_a8c6">L_a8c6</span>          lda     #$00                    
 a8c8: 8d 8b 03                     sta     $038b                   
 a8cb: ad 97 03                     lda     $0397                   
-a8ce: 85 8a                        sta     $8a                     
+a8ce: 85 8a                        sta     PPU_SrcLo               
 a8d0: ad 96 03                     lda     $0396                   
-a8d3: 85 8b                        sta     $8b                     
+a8d3: 85 8b                        sta     PPU_SrcHi               
 a8d5: a9 64                        lda     #$64                    
 a8d7: 85 85                        sta     $85                     
 a8d9: 20 55 a8                     jsr     <a href="#L_a855">L_a855</a>                  
 a8dc: ad 91 03                     lda     $0391                   
-a8df: 85 88                        sta     $88                     
+a8df: 85 88                        sta     PPU_AddrLo              
 a8e1: 0d 90 03                     ora     $0390                   
 a8e4: d0 0a                        bne     <a href="#L_a8f0">L_a8f0</a>                  
 a8e6: a9 00                        lda     #$00                    
-a8e8: 85 8b                        sta     $8b                     
-a8ea: 85 8a                        sta     $8a                     
+a8e8: 85 8b                        sta     PPU_SrcHi               
+a8ea: 85 8a                        sta     PPU_SrcLo               
 a8ec: 8d 8b 03                     sta     $038b                   
 a8ef: 60                           rts                             
 a8f0: ad 90 03     <span id="L_a8f0">L_a8f0</span>          lda     $0390                   
-a8f3: 85 89                        sta     $89                     
+a8f3: 85 89                        sta     PPU_AddrHi              
 a8f5: 20 34 a8                     jsr     <a href="#L_a834">L_a834</a>                  
 a8f8: a5 86                        lda     $86                     
-a8fa: 85 8a                        sta     $8a                     
+a8fa: 85 8a                        sta     PPU_SrcLo               
 a8fc: a9 00                        lda     #$00                    
-a8fe: 85 8b                        sta     $8b                     
+a8fe: 85 8b                        sta     PPU_SrcHi               
 a900: 8d 8b 03                     sta     $038b                   
-a903: a5 8a        <span id="L_a903">L_a903</span>          lda     $8a                     
+a903: a5 8a        <span id="L_a903">L_a903</span>          lda     PPU_SrcLo               
 a905: 38                           sec                             
 a906: e9 0a                        sbc     #$0a                    
 a908: 90 13                        bcc     <a href="#L_a91d">L_a91d</a>                  
-a90a: 85 8a                        sta     $8a                     
-a90c: e6 8b                        inc     $8b                     
-a90e: a5 8b                        lda     $8b                     
+a90a: 85 8a                        sta     PPU_SrcLo               
+a90c: e6 8b                        inc     PPU_SrcHi               
+a90e: a5 8b                        lda     PPU_SrcHi               
 a910: 38                           sec                             
 a911: e9 0a                        sbc     #$0a                    
 a913: 90 ee                        bcc     <a href="#L_a903">L_a903</a>                  
-a915: 85 8b                        sta     $8b                     
+a915: 85 8b                        sta     PPU_SrcHi               
 a917: ee 8b 03                     inc     $038b                   
 a91a: 4c 03 a9                     jmp     <a href="#L_a903">L_a903</a>                  
 a91d: 60 a5 8d 29 ..<span id="D_a91d">D_a91d</span>          .byte   $60, $a5, $8d, $29, $e7, $85, $8d, $4c
@@ -2403,63 +2409,63 @@ a945: d0 03 4c 5f ..                .byte   $d0, $03, $4c, $5f, $a9, $c9, $04, $
 a94d: 03 4c c3 a9 ..                .byte   $03, $4c, $c3, $a9, $c9, $05, $d0, $03
 a955: 4c 8b a9 c9 ..                .byte   $4c, $8b, $a9, $c9, $06, $d0, $4b, $4c
 a95d: 99 a9                        .byte   $99, $a9
-a95f: a5 87        <span id="L_a95f">L_a95f</span>          lda     $87                     
+a95f: a5 87        <span id="L_a95f">L_a95f</span>          lda     PPU_WriteCount          
 a961: 38                           sec                             
 a962: e5 b0                        sbc     $b0                     
-a964: 85 87                        sta     $87                     
+a964: 85 87                        sta     PPU_WriteCount          
 a966: c9 03                        cmp     #$03                    
 a968: b0 11                        bcs     <a href="#L_a97b">L_a97b</a>                  
-a96a: 4c ce a9                     jmp     <a href="#L_a9ce">L_a9ce</a>                  
-a96d: a5 87        <span id="L_a96d">L_a96d</span>          lda     $87                     
+a96a: 4c ce a9                     jmp     <a href="#ReturnCarrySet">ReturnCarrySet</a>          
+a96d: a5 87        <span id="L_a96d">L_a96d</span>          lda     PPU_WriteCount          
 a96f: 18                           clc                             
 a970: 65 b0                        adc     $b0                     
-a972: 85 87                        sta     $87                     
+a972: 85 87                        sta     PPU_WriteCount          
 a974: c9 fa                        cmp     #$fa                    
 a976: 90 03                        bcc     <a href="#L_a97b">L_a97b</a>                  
-a978: 4c ce a9                     jmp     <a href="#L_a9ce">L_a9ce</a>                  
+a978: 4c ce a9                     jmp     <a href="#ReturnCarrySet">ReturnCarrySet</a>          
 a97b: a5 86        <span id="L_a97b">L_a97b</span>          lda     $86                     
 a97d: 38                           sec                             
 a97e: e5 b0                        sbc     $b0                     
-a980: 90 4c                        bcc     <a href="#L_a9ce">L_a9ce</a>                  
+a980: 90 4c                        bcc     <a href="#ReturnCarrySet">ReturnCarrySet</a>          
 a982: 85 86                        sta     $86                     
 a984: c9 03                        cmp     #$03                    
 a986: b0 48                        bcs     <a href="#L_a9d0">L_a9d0</a>                  
-a988: 4c ce a9                     jmp     <a href="#L_a9ce">L_a9ce</a>                  
-a98b: a5 87        <span id="L_a98b">L_a98b</span>          lda     $87                     
+a988: 4c ce a9                     jmp     <a href="#ReturnCarrySet">ReturnCarrySet</a>          
+a98b: a5 87        <span id="L_a98b">L_a98b</span>          lda     PPU_WriteCount          
 a98d: 38                           sec                             
 a98e: e5 b0                        sbc     $b0                     
-a990: 85 87                        sta     $87                     
+a990: 85 87                        sta     PPU_WriteCount          
 a992: c9 03                        cmp     #$03                    
 a994: b0 11                        bcs     <a href="#L_a9a7">L_a9a7</a>                  
-a996: 4c ce a9                     jmp     <a href="#L_a9ce">L_a9ce</a>                  
-a999: a5 87        <span id="L_a999">L_a999</span>          lda     $87                     
+a996: 4c ce a9                     jmp     <a href="#ReturnCarrySet">ReturnCarrySet</a>          
+a999: a5 87        <span id="L_a999">L_a999</span>          lda     PPU_WriteCount          
 a99b: 18                           clc                             
 a99c: 65 b0                        adc     $b0                     
-a99e: 85 87                        sta     $87                     
+a99e: 85 87                        sta     PPU_WriteCount          
 a9a0: c9 fa                        cmp     #$fa                    
 a9a2: 90 03                        bcc     <a href="#L_a9a7">L_a9a7</a>                  
-a9a4: 4c ce a9                     jmp     <a href="#L_a9ce">L_a9ce</a>                  
+a9a4: 4c ce a9                     jmp     <a href="#ReturnCarrySet">ReturnCarrySet</a>          
 a9a7: a5 86        <span id="L_a9a7">L_a9a7</span>          lda     $86                     
 a9a9: 18                           clc                             
 a9aa: 65 b0                        adc     $b0                     
 a9ac: 85 86                        sta     $86                     
 a9ae: c9 ea                        cmp     #$ea                    
 a9b0: 90 1e                        bcc     <a href="#L_a9d0">L_a9d0</a>                  
-a9b2: 4c ce a9                     jmp     <a href="#L_a9ce">L_a9ce</a>                  
-a9b5: a5 87        <span id="L_a9b5">L_a9b5</span>          lda     $87                     
+a9b2: 4c ce a9                     jmp     <a href="#ReturnCarrySet">ReturnCarrySet</a>          
+a9b5: a5 87        <span id="L_a9b5">L_a9b5</span>          lda     PPU_WriteCount          
 a9b7: 18                           clc                             
 a9b8: 65 b0                        adc     $b0                     
-a9ba: 85 87                        sta     $87                     
+a9ba: 85 87                        sta     PPU_WriteCount          
 a9bc: c9 fa                        cmp     #$fa                    
 a9be: 90 10                        bcc     <a href="#L_a9d0">L_a9d0</a>                  
-a9c0: 4c ce a9                     jmp     <a href="#L_a9ce">L_a9ce</a>                  
-a9c3: a5 87        <span id="L_a9c3">L_a9c3</span>          lda     $87                     
+a9c0: 4c ce a9                     jmp     <a href="#ReturnCarrySet">ReturnCarrySet</a>          
+a9c3: a5 87        <span id="L_a9c3">L_a9c3</span>          lda     PPU_WriteCount          
 a9c5: 38                           sec                             
 a9c6: e5 b0                        sbc     $b0                     
-a9c8: 85 87                        sta     $87                     
+a9c8: 85 87                        sta     PPU_WriteCount          
 a9ca: c9 03                        cmp     #$03                    
 a9cc: b0 02                        bcs     <a href="#L_a9d0">L_a9d0</a>                  
-a9ce: 38           <span id="L_a9ce">L_a9ce</span>          sec                             
+a9ce: 38           <span id="ReturnCarrySet">ReturnCarrySet</span>  sec                             
 a9cf: 60                           rts                             
 a9d0: 18 60 60 a0 ..<span id="D_a9d0">D_a9d0</span>          .byte   $18, $60, $60, $a0, $00
 a9d5: 20 bc b0     <span id="L_a9d5">L_a9d5</span>          jsr     <a href="#L_b0bc">L_b0bc</a>                  
@@ -2525,13 +2531,13 @@ aa5d: 18           <span id="L_aa5d">L_aa5d</span>          clc
 aa5e: 60                           rts                             
 aa5f: 38 60        <span id="D_aa5f">D_aa5f</span>          .byte   $38, $60
 aa61: 8c 1d 07     <span id="L_aa61">L_aa61</span>          sty     $071d                   
-aa64: bd c0 04                     lda     Player_X,X              
+aa64: bd c0 04                     lda     Entity_X,X              
 aa67: 8d 91 03                     sta     $0391                   
-aa6a: bd a7 04                     lda     Player_Y,X              
+aa6a: bd a7 04                     lda     Entity_Y,X              
 aa6d: 8d 94 03                     sta     $0394                   
-aa70: b9 c0 04                     lda     Player_X,Y              
+aa70: b9 c0 04                     lda     Entity_X,Y              
 aa73: 8d 97 03                     sta     $0397                   
-aa76: b9 a7 04                     lda     Player_Y,Y              
+aa76: b9 a7 04                     lda     Entity_Y,Y              
 aa79: 8d 9a 03                     sta     $039a                   
 aa7c: bd d9 04                     lda     $04d9,X                 
 aa7f: 20 2c ab                     jsr     <a href="#L_ab2c">L_ab2c</a>                  
@@ -2555,13 +2561,13 @@ aaa6: 18                           clc
 aaa7: 65 b1                        adc     $b1                     
 aaa9: 90 02                        bcc     <a href="#L_aaad">L_aaad</a>                  
 aaab: a9 ff                        lda     #$ff                    
-aaad: 85 87        <span id="L_aaad">L_aaad</span>          sta     $87                     
+aaad: 85 87        <span id="L_aaad">L_aaad</span>          sta     PPU_WriteCount          
 aaaf: ad 97 03                     lda     $0397                   
 aab2: 38                           sec                             
 aab3: e5 b4                        sbc     $b4                     
 aab5: b0 02                        bcs     <a href="#L_aab9">L_aab9</a>                  
 aab7: a9 00                        lda     #$00                    
-aab9: c5 87        <span id="L_aab9">L_aab9</span>          cmp     $87                     
+aab9: c5 87        <span id="L_aab9">L_aab9</span>          cmp     PPU_WriteCount          
 aabb: 90 03                        bcc     <a href="#L_aac0">L_aac0</a>                  
 aabd: 4c 22 ab                     jmp     <a href="#L_ab22">L_ab22</a>                  
 aac0: ad 91 03     <span id="L_aac0">L_aac0</span>          lda     $0391                   
@@ -2569,13 +2575,13 @@ aac3: 38                           sec
 aac4: e5 b0                        sbc     $b0                     
 aac6: b0 02                        bcs     <a href="#L_aaca">L_aaca</a>                  
 aac8: a9 00                        lda     #$00                    
-aaca: 85 87        <span id="L_aaca">L_aaca</span>          sta     $87                     
+aaca: 85 87        <span id="L_aaca">L_aaca</span>          sta     PPU_WriteCount          
 aacc: ad 97 03                     lda     $0397                   
 aacf: 18                           clc                             
 aad0: 65 b5                        adc     $b5                     
 aad2: 90 02                        bcc     <a href="#L_aad6">L_aad6</a>                  
 aad4: a9 ff                        lda     #$ff                    
-aad6: c5 87        <span id="L_aad6">L_aad6</span>          cmp     $87                     
+aad6: c5 87        <span id="L_aad6">L_aad6</span>          cmp     PPU_WriteCount          
 aad8: b0 03                        bcs     <a href="#L_aadd">L_aadd</a>                  
 aada: 4c 22 ab                     jmp     <a href="#L_ab22">L_ab22</a>                  
 aadd: ad 94 03     <span id="L_aadd">L_aadd</span>          lda     $0394                   
@@ -2586,13 +2592,13 @@ aae5: c9 f0                        cmp     #$f0
 aae7: b0 03                        bcs     <a href="#L_aaec">L_aaec</a>                  
 aae9: 4c ee aa                     jmp     <a href="#L_aaee">L_aaee</a>                  
 aaec: a9 ff        <span id="D_aaec">D_aaec</span>          .byte   $a9, $ff
-aaee: 85 87        <span id="L_aaee">L_aaee</span>          sta     $87                     
+aaee: 85 87        <span id="L_aaee">L_aaee</span>          sta     PPU_WriteCount          
 aaf0: ad 9a 03                     lda     $039a                   
 aaf3: 38                           sec                             
 aaf4: e5 b6                        sbc     $b6                     
 aaf6: b0 02                        bcs     <a href="#L_aafa">L_aafa</a>                  
 aaf8: a9 00                        lda     #$00                    
-aafa: c5 87        <span id="L_aafa">L_aafa</span>          cmp     $87                     
+aafa: c5 87        <span id="L_aafa">L_aafa</span>          cmp     PPU_WriteCount          
 aafc: 90 03                        bcc     <a href="#L_ab01">L_ab01</a>                  
 aafe: 4c 22 ab                     jmp     <a href="#L_ab22">L_ab22</a>                  
 ab01: ad 94 03     <span id="L_ab01">L_ab01</span>          lda     $0394                   
@@ -2600,7 +2606,7 @@ ab04: 38                           sec
 ab05: e5 b2                        sbc     $b2                     
 ab07: b0 02                        bcs     <a href="#L_ab0b">L_ab0b</a>                  
 ab09: a9 00                        lda     #$00                    
-ab0b: 85 87        <span id="L_ab0b">L_ab0b</span>          sta     $87                     
+ab0b: 85 87        <span id="L_ab0b">L_ab0b</span>          sta     PPU_WriteCount          
 ab0d: ad 9a 03                     lda     $039a                   
 ab10: 18                           clc                             
 ab11: 65 b7                        adc     $b7                     
@@ -2609,7 +2615,7 @@ ab15: c9 f0                        cmp     #$f0
 ab17: b0 03                        bcs     <a href="#L_ab1c">L_ab1c</a>                  
 ab19: 4c 1e ab                     jmp     <a href="#L_ab1e">L_ab1e</a>                  
 ab1c: a9 ff        <span id="L_ab1c">L_ab1c</span>          lda     #$ff                    
-ab1e: c5 87        <span id="L_ab1e">L_ab1e</span>          cmp     $87                     
+ab1e: c5 87        <span id="L_ab1e">L_ab1e</span>          cmp     PPU_WriteCount          
 ab20: b0 05                        bcs     <a href="#L_ab27">L_ab27</a>                  
 ab22: ac 1d 07     <span id="L_ab22">L_ab22</span>          ldy     $071d                   
 ab25: 18                           clc                             
@@ -2638,10 +2644,10 @@ abc2: 0a           <span id="L_abc2">L_abc2</span>          asl     A
 abc3: 0a                           asl     A                       
 abc4: 18                           clc                             
 abc5: 69 d0                        adc     #$d0                    
-abc7: 85 8a                        sta     $8a                     
+abc7: 85 8a                        sta     PPU_SrcLo               
 abc9: a9 00                        lda     #$00                    
 abcb: 69 ab                        adc     #$ab                    
-abcd: 85 8b                        sta     $8b                     
+abcd: 85 8b                        sta     PPU_SrcHi               
 abcf: 60                           rts                             
 abd0: 05 05 04 03 ..                .byte   $05, $05, $04, $03, $03, $03, $03, $03
 abd8: 05 05 05 05 ..                .byte   $05, $05, $05, $05, $09, $09, $05, $05
@@ -2662,34 +2668,34 @@ ac11: 48                           pha
 ac12: 08                           php                             
 ac13: 08                           php                             
 ac14: a9 00        <span id="L_ac14">L_ac14</span>          lda     #$00                    
-ac16: 85 89                        sta     $89                     
-ac18: 85 88                        sta     $88                     
+ac16: 85 89                        sta     PPU_AddrHi              
+ac18: 85 88                        sta     PPU_AddrLo              
 ac1a: 8e 8b 03     <span id="L_ac1a">L_ac1a</span>          stx     $038b                   
 ac1d: 8c 8c 03                     sty     $038c                   
 ac20: ad 2b 04                     lda     Score_D1                
 ac23: 18                           clc                             
-ac24: 65 8a                        adc     $8a                     
+ac24: 65 8a                        adc     PPU_SrcLo               
 ac26: c9 0a                        cmp     #$0a                    
 ac28: 90 03                        bcc     <a href="#L_ac2d">L_ac2d</a>                  
 ac2a: 38                           sec                             
 ac2b: e9 0a                        sbc     #$0a                    
 ac2d: 8d 2b 04     <span id="L_ac2d">L_ac2d</span>          sta     Score_D1                
 ac30: ad 2a 04                     lda     Score_D2                
-ac33: 65 8b                        adc     $8b                     
+ac33: 65 8b                        adc     PPU_SrcHi               
 ac35: c9 0a                        cmp     #$0a                    
 ac37: 90 03                        bcc     <a href="#L_ac3c">L_ac3c</a>                  
 ac39: 38                           sec                             
 ac3a: e9 0a                        sbc     #$0a                    
 ac3c: 8d 2a 04     <span id="L_ac3c">L_ac3c</span>          sta     Score_D2                
 ac3f: ad 29 04                     lda     Score_D3                
-ac42: 65 88                        adc     $88                     
+ac42: 65 88                        adc     PPU_AddrLo              
 ac44: c9 0a                        cmp     #$0a                    
 ac46: 90 03                        bcc     <a href="#L_ac4b">L_ac4b</a>                  
 ac48: 38                           sec                             
 ac49: e9 0a                        sbc     #$0a                    
 ac4b: 8d 29 04     <span id="L_ac4b">L_ac4b</span>          sta     Score_D3                
 ac4e: ad 28 04                     lda     Score_D4                
-ac51: 65 89                        adc     $89                     
+ac51: 65 89                        adc     PPU_AddrHi              
 ac53: c9 0a                        cmp     #$0a                    
 ac55: 90 03                        bcc     <a href="#L_ac5a">L_ac5a</a>                  
 ac57: 38                           sec                             
@@ -2788,22 +2794,22 @@ ad43: a2 00                        ldx     #$00
 ad45: ad 86 03                     lda     $0386                   
 ad48: d0 13                        bne     <a href="#L_ad5d">L_ad5d</a>                  
 ad4a: a9 4a                        lda     #$4a                    
-ad4c: 85 8a                        sta     $8a                     
+ad4c: 85 8a                        sta     PPU_SrcLo               
 ad4e: a9 04                        lda     #$04                    
-ad50: 85 8b                        sta     $8b                     
+ad50: 85 8b                        sta     PPU_SrcHi               
 ad52: a9 99                        lda     #$99                    
-ad54: 85 88                        sta     $88                     
+ad54: 85 88                        sta     PPU_AddrLo              
 ad56: a9 ad                        lda     #$ad                    
-ad58: 85 89                        sta     $89                     
+ad58: 85 89                        sta     PPU_AddrHi              
 ad5a: 4c 6d ad                     jmp     <a href="#L_ad6d">L_ad6d</a>                  
 ad5d: a9 6b        <span id="L_ad5d">L_ad5d</span>          lda     #$6b                    
-ad5f: 85 8a                        sta     $8a                     
+ad5f: 85 8a                        sta     PPU_SrcLo               
 ad61: a9 04                        lda     #$04                    
-ad63: 85 8b                        sta     $8b                     
+ad63: 85 8b                        sta     PPU_SrcHi               
 ad65: a9 b1                        lda     #$b1                    
-ad67: 85 88                        sta     $88                     
+ad67: 85 88                        sta     PPU_AddrLo              
 ad69: a9 ad                        lda     #$ad                    
-ad6b: 85 89                        sta     $89                     
+ad6b: 85 89                        sta     PPU_AddrHi              
 ad6d: bd 27 04     <span id="L_ad6d">L_ad6d</span>          lda     Score_D5,X              
 ad70: 29 0f                        and     #$0f                    
 ad72: 91 8a                        sta     ($8a),Y                 
@@ -2835,7 +2841,7 @@ ada9: 20 ff 03 40 ..                .byte   $20, $ff, $03, $40, $20, $ff, $03, $
 adb1: 20 ff 03 b0 ..                .byte   $20, $ff, $03, $b0, $20, $ff, $03, $b8
 adb9: 20 ff 03 c0 ..                .byte   $20, $ff, $03, $c0, $20, $ff, $03, $c8
 adc1: 20 ff 03 d0 ..                .byte   $20, $ff, $03, $d0, $20, $ff, $03, $d8
-adc9: 84 87        <span id="L_adc9">L_adc9</span>          sty     $87                     
+adc9: 84 87        <span id="L_adc9">L_adc9</span>          sty     PPU_WriteCount          
 adcb: 20 ad ae                     jsr     <a href="#L_aead">L_aead</a>                  
 adce: 38                           sec                             
 adcf: ad 9a 03                     lda     $039a                   
@@ -2908,19 +2914,19 @@ ae81: b9 fb b1                     lda     $b1fb,Y
 ae84: 18                           clc                             
 ae85: 65 86                        adc     $86                     
 ae87: 29 0f                        and     #$0f                    
-ae89: a4 87                        ldy     $87                     
+ae89: a4 87                        ldy     PPU_WriteCount          
 ae8b: 60                           rts                             
 ae8c: ad 99 03     <span id="L_ae8c">L_ae8c</span>          lda     $0399                   
-ae8f: 85 8b                        sta     $8b                     
+ae8f: 85 8b                        sta     PPU_SrcHi               
 ae91: ad 9a 03                     lda     $039a                   
-ae94: 85 8a                        sta     $8a                     
+ae94: 85 8a                        sta     PPU_SrcLo               
 ae96: ad 96 03                     lda     $0396                   
 ae99: 8d 99 03                     sta     $0399                   
 ae9c: ad 97 03                     lda     $0397                   
 ae9f: 8d 9a 03                     sta     $039a                   
-aea2: a5 8b                        lda     $8b                     
+aea2: a5 8b                        lda     PPU_SrcHi               
 aea4: 8d 96 03                     sta     $0396                   
-aea7: a5 8a                        lda     $8a                     
+aea7: a5 8a                        lda     PPU_SrcLo               
 aea9: 8d 97 03                     sta     $0397                   
 aeac: 60                           rts                             
 aead: ad 96 03     <span id="L_aead">L_aead</span>          lda     $0396                   
@@ -2986,12 +2992,12 @@ af4e: 8d 99 03                     sta     $0399
 af51: ac 8c 03                     ldy     $038c                   
 af54: 60                           rts                             
 af55: b9 3b b3     <span id="L_af55">L_af55</span>          lda     $b33b,Y                 
-af58: 85 8a                        sta     $8a                     
+af58: 85 8a                        sta     PPU_SrcLo               
 af5a: c8                           iny                             
 af5b: a9 00                        lda     #$00                    
 af5d: 8d 8b 03                     sta     $038b                   
 af60: b9 3b b3                     lda     $b33b,Y                 
-af63: 85 8b                        sta     $8b                     
+af63: 85 8b                        sta     PPU_SrcHi               
 af65: 10 05                        bpl     <a href="#L_af6c">L_af6c</a>                  
 af67: a9 ff                        lda     #$ff                    
 af69: 8d 8b 03                     sta     $038b                   
@@ -3001,15 +3007,15 @@ af6f: 48                           pha
 af70: 20 55 a8                     jsr     <a href="#L_a855">L_a855</a>                  
 af73: 68                           pla                             
 af74: 85 85                        sta     $85                     
-af76: a5 8b                        lda     $8b                     
+af76: a5 8b                        lda     PPU_SrcHi               
 af78: 18                           clc                             
 af79: 60                           rts                             
 af7a: 85 86        <span id="L_af7a">L_af7a</span>          sta     $86                     
-af7c: 84 87                        sty     $87                     
+af7c: 84 87                        sty     PPU_WriteCount          
 af7e: a9 b2                        lda     #$b2                    
 af80: a0 fb                        ldy     #$fb                    
-af82: 85 8b                        sta     $8b                     
-af84: 84 8a                        sty     $8a                     
+af82: 85 8b                        sta     PPU_SrcHi               
+af84: 84 8a                        sty     PPU_SrcLo               
 af86: bd 0b 05                     lda     $050b,X                 
 af89: 0a           <span id="L_af89">L_af89</span>          asl     A                       
 af8a: 0a                           asl     A                       
@@ -3077,11 +3083,11 @@ b029: c6 86                        dec     $86
 b02b: d0 c4                        bne     <a href="#L_aff1">L_aff1</a>                  
 b02d: 60                           rts                             
 b02e: 85 86                        .byte   $85, $86
-b030: 84 87        <span id="L_b030">L_b030</span>          sty     $87                     
+b030: 84 87        <span id="L_b030">L_b030</span>          sty     PPU_WriteCount          
 b032: a9 b2                        lda     #$b2                    
 b034: a0 fb                        ldy     #$fb                    
-b036: 85 8b                        sta     $8b                     
-b038: 84 8a                        sty     $8a                     
+b036: 85 8b                        sta     PPU_SrcHi               
+b038: 84 8a                        sty     PPU_SrcLo               
 b03a: bd 0b 05                     lda     $050b,X                 
 b03d: 18                           clc                             
 b03e: 69 08                        adc     #$08                    
@@ -3126,7 +3132,7 @@ b0a2: ad 96 03                     lda     $0396
 b0a5: 7d 6f 05                     adc     $056f,X                 
 b0a8: 29 01                        and     #$01                    
 b0aa: 9d 6f 05                     sta     $056f,X                 
-b0ad: a4 87                        ldy     $87                     
+b0ad: a4 87                        ldy     PPU_WriteCount          
 b0af: 60                           rts                             
 b0b0: bd a1 05 8d ..                .byte   $bd, $a1, $05, $8d, $92, $03, $bd, $56
 b0b8: 05 8d 95 03                  .byte   $05, $8d, $95, $03
@@ -3242,9 +3248,9 @@ b1e8: 38                           sec
 b1e9: e9 10                        sbc     #$10                    
 b1eb: 8d 9a 03                     sta     $039a                   
 b1ee: ad 9a 03     <span id="L_b1ee">L_b1ee</span>          lda     $039a                   
-b1f1: 9d a7 04                     sta     Player_Y,X              
+b1f1: 9d a7 04                     sta     Entity_Y,X              
 b1f4: ad 97 03                     lda     $0397                   
-b1f7: 9d c0 04                     sta     Player_X,X              
+b1f7: 9d c0 04                     sta     Entity_X,X              
 b1fa: 60                           rts                             
 b1fb: 00 00 00 00 ..<span id="D_b1fb">D_b1fb</span>          .byte   $00, $00, $00, $00, $00, $00, $00, $00
 b203: 00 00 00 00 ..                .byte   $00, $00, $00, $00, $00, $00, $00, $00
@@ -3415,7 +3421,7 @@ b4a4: 4a                           lsr     A
 b4a5: 4a                           lsr     A                       
 b4a6: a8                           tay                             
 b4a7: b9 dc b4                     lda     $b4dc,Y                 
-b4aa: a4 87                        ldy     $87                     
+b4aa: a4 87                        ldy     PPU_WriteCount          
 b4ac: c5 86                        cmp     $86                     
 b4ae: 90 b0                        bcc     <a href="#L_b460">L_b460</a>                  
 b4b0: bd 8e 04     <span id="L_b4b0">L_b4b0</span>          lda     $048e,X                 
@@ -3594,9 +3600,9 @@ b6a5: a9 ff                        lda     #$ff
 b6a7: 8d 80 03                     sta     $0380                   
 b6aa: a0 0b                        ldy     #$0b                    
 b6ac: a9 48                        lda     #$48                    
-b6ae: 99 c0 04                     sta     Player_X,Y              
+b6ae: 99 c0 04                     sta     Entity_X,Y              
 b6b1: a9 7f                        lda     #$7f                    
-b6b3: 99 a7 04                     sta     Player_Y,Y              
+b6b3: 99 a7 04                     sta     Entity_Y,Y              
 b6b6: a9 20                        lda     #$20                    
 b6b8: 99 d9 04                     sta     $04d9,Y                 
 b6bb: a9 1a                        lda     #$1a                    
@@ -3816,9 +3822,9 @@ b936: 99 6b 04     <span id="L_b936">L_b936</span>          sta     $046b,Y
 b939: 88                           dey                             
 b93a: 10 fa                        bpl     <a href="#L_b936">L_b936</a>                  
 b93c: 60                           rts                             
-b93d: a5 8c        <span id="L_b93d">L_b93d</span>          lda     $8c                     
+b93d: a5 8c        <span id="L_b93d">L_b93d</span>          lda     PPUCTRL_Shadow          
 b93f: 29 7f                        and     #$7f                    
-b941: 85 8c                        sta     $8c                     
+b941: 85 8c                        sta     PPUCTRL_Shadow          
 b943: 8d 00 20                     sta     PPUCTRL                 
 b946: a9 ff                        lda     #$ff                    
 b948: 8d 23 07                     sta     $0723                   
@@ -3831,55 +3837,55 @@ b955: a0 47                        ldy     #$47
 b957: 99 af 03     <span id="L_b957">L_b957</span>          sta     Player_OAM_Y,Y          
 b95a: 88                           dey                             
 b95b: d0 fa                        bne     <a href="#L_b957">L_b957</a>                  
-b95d: a5 8c                        lda     $8c                     
+b95d: a5 8c                        lda     PPUCTRL_Shadow          
 b95f: 09 80                        ora     #$80                    
-b961: 85 8c                        sta     $8c                     
+b961: 85 8c                        sta     PPUCTRL_Shadow          
 b963: 8d 00 20                     sta     PPUCTRL                 
 b966: a9 00                        lda     #$00                    
 b968: 8d 23 07                     sta     $0723                   
 b96b: 60                           rts                             
 b96c: a9 20        <span id="L_b96c">L_b96c</span>          lda     #$20                    
-b96e: 85 89                        sta     $89                     
+b96e: 85 89                        sta     PPU_AddrHi              
 b970: a9 00                        lda     #$00                    
-b972: 85 88                        sta     $88                     
+b972: 85 88                        sta     PPU_AddrLo              
 b974: a9 b9                        lda     #$b9                    
-b976: 85 8b                        sta     $8b                     
+b976: 85 8b                        sta     PPU_SrcHi               
 b978: a9 c5                        lda     #$c5                    
-b97a: 85 8a                        sta     $8a                     
+b97a: 85 8a                        sta     PPU_SrcLo               
 b97c: a9 1e                        lda     #$1e                    
 b97e: 85 86                        sta     $86                     
 b980: a9 20        <span id="L_b980">L_b980</span>          lda     #$20                    
-b982: 85 87                        sta     $87                     
-b984: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+b982: 85 87                        sta     PPU_WriteCount          
+b984: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 b987: 18                           clc                             
-b988: a5 88                        lda     $88                     
+b988: a5 88                        lda     PPU_AddrLo              
 b98a: 69 20                        adc     #$20                    
-b98c: 85 88                        sta     $88                     
-b98e: a5 89                        lda     $89                     
+b98c: 85 88                        sta     PPU_AddrLo              
+b98e: a5 89                        lda     PPU_AddrHi              
 b990: 69 00                        adc     #$00                    
-b992: 85 89                        sta     $89                     
+b992: 85 89                        sta     PPU_AddrHi              
 b994: c6 86                        dec     $86                     
 b996: d0 e8                        bne     <a href="#L_b980">L_b980</a>                  
 b998: a9 28                        lda     #$28                    
-b99a: 85 89                        sta     $89                     
+b99a: 85 89                        sta     PPU_AddrHi              
 b99c: a9 00                        lda     #$00                    
-b99e: 85 88                        sta     $88                     
+b99e: 85 88                        sta     PPU_AddrLo              
 b9a0: a9 b9                        lda     #$b9                    
-b9a2: 85 8b                        sta     $8b                     
+b9a2: 85 8b                        sta     PPU_SrcHi               
 b9a4: a9 c5                        lda     #$c5                    
-b9a6: 85 8a                        sta     $8a                     
+b9a6: 85 8a                        sta     PPU_SrcLo               
 b9a8: a9 1e                        lda     #$1e                    
 b9aa: 85 86                        sta     $86                     
 b9ac: a9 20        <span id="L_b9ac">L_b9ac</span>          lda     #$20                    
-b9ae: 85 87                        sta     $87                     
-b9b0: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+b9ae: 85 87                        sta     PPU_WriteCount          
+b9b0: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 b9b3: 18                           clc                             
-b9b4: a5 88                        lda     $88                     
+b9b4: a5 88                        lda     PPU_AddrLo              
 b9b6: 69 20                        adc     #$20                    
-b9b8: 85 88                        sta     $88                     
-b9ba: a5 89                        lda     $89                     
+b9b8: 85 88                        sta     PPU_AddrLo              
+b9ba: a5 89                        lda     PPU_AddrHi              
 b9bc: 69 00                        adc     #$00                    
-b9be: 85 89                        sta     $89                     
+b9be: 85 89                        sta     PPU_AddrHi              
 b9c0: c6 86                        dec     $86                     
 b9c2: d0 e8                        bne     <a href="#L_b9ac">L_b9ac</a>                  
 b9c4: 60                           rts                             
@@ -3891,14 +3897,14 @@ b9e5: a9 04 85 8b ..                .byte   $a9, $04, $85, $8b, $a9, $27, $85, $
 b9ed: a9 03 85 87 ..                .byte   $a9, $03, $85, $87, $a9, $68
 b9f3: 85 86        <span id="L_b9f3">L_b9f3</span>          sta     $86                     
 b9f5: a0 00                        ldy     #$00                    
-b9f7: a5 87                        lda     $87                     
+b9f7: a5 87                        lda     PPU_WriteCount          
 b9f9: f0 0d                        beq     <a href="#L_ba08">L_ba08</a>                  
 b9fb: a9 00                        lda     #$00                    
 b9fd: 91 8a        <span id="L_b9fd">L_b9fd</span>          sta     ($8a),Y                 
 b9ff: c8                           iny                             
 ba00: d0 fb                        bne     <a href="#L_b9fd">L_b9fd</a>                  
-ba02: e6 8b                        inc     $8b                     
-ba04: c6 87                        dec     $87                     
+ba02: e6 8b                        inc     PPU_SrcHi               
+ba04: c6 87                        dec     PPU_WriteCount          
 ba06: d0 f5                        bne     <a href="#L_b9fd">L_b9fd</a>                  
 ba08: a4 86        <span id="L_ba08">L_ba08</span>          ldy     $86                     
 ba0a: f0 05                        beq     <a href="#L_ba11">L_ba11</a>                  
@@ -3907,9 +3913,9 @@ ba0e: 88                           dey
 ba0f: d0 fb                        bne     <a href="#L_ba0c">L_ba0c</a>                  
 ba11: 60           <span id="L_ba11">L_ba11</span>          rts                             
 ba12: a9 bb        <span id="L_ba12">L_ba12</span>          lda     #$bb                    
-ba14: 85 8b                        sta     $8b                     
+ba14: 85 8b                        sta     PPU_SrcHi               
 ba16: a9 51                        lda     #$51                    
-ba18: 85 8a                        sta     $8a                     
+ba18: 85 8a                        sta     PPU_SrcLo               
 ba1a: 20 5a a7                     jsr     <a href="#L_a75a">L_a75a</a>                  
 ba1d: a0 3f                        ldy     #$3f                    
 ba1f: b9 71 bb     <span id="L_ba1f">L_ba1f</span>          lda     $bb71,Y                 
@@ -3922,141 +3928,141 @@ ba2d: 99 40 03                     sta     $0340,Y
 ba30: 88                           dey                             
 ba31: 10 f7                        bpl     <a href="#L_ba2a">L_ba2a</a>                  
 ba33: a9 bb                        lda     #$bb                    
-ba35: 85 8b                        sta     $8b                     
+ba35: 85 8b                        sta     PPU_SrcHi               
 ba37: a9 71                        lda     #$71                    
-ba39: 85 8a                        sta     $8a                     
+ba39: 85 8a                        sta     PPU_SrcLo               
 ba3b: a9 23                        lda     #$23                    
-ba3d: 85 89                        sta     $89                     
+ba3d: 85 89                        sta     PPU_AddrHi              
 ba3f: a9 c0                        lda     #$c0                    
-ba41: 85 88                        sta     $88                     
+ba41: 85 88                        sta     PPU_AddrLo              
 ba43: a9 40                        lda     #$40                    
-ba45: 85 87                        sta     $87                     
-ba47: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+ba45: 85 87                        sta     PPU_WriteCount          
+ba47: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 ba4a: a9 bb                        lda     #$bb                    
-ba4c: 85 8b                        sta     $8b                     
+ba4c: 85 8b                        sta     PPU_SrcHi               
 ba4e: a9 b1                        lda     #$b1                    
-ba50: 85 8a                        sta     $8a                     
+ba50: 85 8a                        sta     PPU_SrcLo               
 ba52: a9 20                        lda     #$20                    
-ba54: 85 89                        sta     $89                     
+ba54: 85 89                        sta     PPU_AddrHi              
 ba56: a9 45                        lda     #$45                    
-ba58: 85 88                        sta     $88                     
+ba58: 85 88                        sta     PPU_AddrLo              
 ba5a: a9 03                        lda     #$03                    
-ba5c: 85 87                        sta     $87                     
-ba5e: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+ba5c: 85 87                        sta     PPU_WriteCount          
+ba5e: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 ba61: a9 04                        lda     #$04                    
-ba63: 85 8b                        sta     $8b                     
+ba63: 85 8b                        sta     PPU_SrcHi               
 ba65: a9 4a                        lda     #$4a                    
-ba67: 85 8a                        sta     $8a                     
+ba67: 85 8a                        sta     PPU_SrcLo               
 ba69: a9 20                        lda     #$20                    
-ba6b: 85 89                        sta     $89                     
+ba6b: 85 89                        sta     PPU_AddrHi              
 ba6d: a9 63                        lda     #$63                    
-ba6f: 85 88                        sta     $88                     
+ba6f: 85 88                        sta     PPU_AddrLo              
 ba71: a9 06                        lda     #$06                    
-ba73: 85 87                        sta     $87                     
-ba75: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+ba73: 85 87                        sta     PPU_WriteCount          
+ba75: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 ba78: a9 bb                        lda     #$bb                    
-ba7a: 85 8b                        sta     $8b                     
+ba7a: 85 8b                        sta     PPU_SrcHi               
 ba7c: a9 b7                        lda     #$b7                    
-ba7e: 85 8a                        sta     $8a                     
+ba7e: 85 8a                        sta     PPU_SrcLo               
 ba80: a9 20                        lda     #$20                    
-ba82: 85 89                        sta     $89                     
+ba82: 85 89                        sta     PPU_AddrHi              
 ba84: a9 4c                        lda     #$4c                    
-ba86: 85 88                        sta     $88                     
+ba86: 85 88                        sta     PPU_AddrLo              
 ba88: a9 08                        lda     #$08                    
-ba8a: 85 87                        sta     $87                     
-ba8c: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+ba8a: 85 87                        sta     PPU_WriteCount          
+ba8c: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 ba8f: a9 07                        lda     #$07                    
-ba91: 85 8b                        sta     $8b                     
+ba91: 85 8b                        sta     PPU_SrcHi               
 ba93: a9 bf                        lda     #$bf                    
-ba95: 85 8a                        sta     $8a                     
+ba95: 85 8a                        sta     PPU_SrcLo               
 ba97: a9 20                        lda     #$20                    
-ba99: 85 89                        sta     $89                     
+ba99: 85 89                        sta     PPU_AddrHi              
 ba9b: a9 6d                        lda     #$6d                    
-ba9d: 85 88                        sta     $88                     
+ba9d: 85 88                        sta     PPU_AddrLo              
 ba9f: a9 06                        lda     #$06                    
-baa1: 85 87                        sta     $87                     
-baa3: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+baa1: 85 87                        sta     PPU_WriteCount          
+baa3: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 baa6: ad 81 03                     lda     $0381                   
 baa9: f0 2e                        beq     <a href="#L_bad9">L_bad9</a>                  
 baab: a9 bb                        lda     #$bb                    
-baad: 85 8b                        sta     $8b                     
+baad: 85 8b                        sta     PPU_SrcHi               
 baaf: a9 b4                        lda     #$b4                    
-bab1: 85 8a                        sta     $8a                     
+bab1: 85 8a                        sta     PPU_SrcLo               
 bab3: a9 20                        lda     #$20                    
-bab5: 85 89                        sta     $89                     
+bab5: 85 89                        sta     PPU_AddrHi              
 bab7: a9 59                        lda     #$59                    
-bab9: 85 88                        sta     $88                     
+bab9: 85 88                        sta     PPU_AddrLo              
 babb: a9 03                        lda     #$03                    
-babd: 85 87                        sta     $87                     
-babf: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+babd: 85 87                        sta     PPU_WriteCount          
+babf: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bac2: a9 04                        lda     #$04                    
-bac4: 85 8b                        sta     $8b                     
+bac4: 85 8b                        sta     PPU_SrcHi               
 bac6: a9 6b                        lda     #$6b                    
-bac8: 85 8a                        sta     $8a                     
+bac8: 85 8a                        sta     PPU_SrcLo               
 baca: a9 20                        lda     #$20                    
-bacc: 85 89                        sta     $89                     
+bacc: 85 89                        sta     PPU_AddrHi              
 bace: a9 77                        lda     #$77                    
-bad0: 85 88                        sta     $88                     
+bad0: 85 88                        sta     PPU_AddrLo              
 bad2: a9 06                        lda     #$06                    
-bad4: 85 87                        sta     $87                     
-bad6: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+bad4: 85 87                        sta     PPU_WriteCount          
+bad6: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bad9: a9 bb        <span id="L_bad9">L_bad9</span>          lda     #$bb                    
-badb: 85 8b                        sta     $8b                     
+badb: 85 8b                        sta     PPU_SrcHi               
 badd: a9 bf                        lda     #$bf                    
-badf: 85 8a                        sta     $8a                     
+badf: 85 8a                        sta     PPU_SrcLo               
 bae1: a9 a0                        lda     #$a0                    
-bae3: 85 87                        sta     $87                     
+bae3: 85 87                        sta     PPU_WriteCount          
 bae5: a9 21                        lda     #$21                    
-bae7: 85 89                        sta     $89                     
+bae7: 85 89                        sta     PPU_AddrHi              
 bae9: a9 00                        lda     #$00                    
-baeb: 85 88                        sta     $88                     
-baed: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+baeb: 85 88                        sta     PPU_AddrLo              
+baed: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 baf0: a9 bc                        lda     #$bc                    
-baf2: 85 8b                        sta     $8b                     
+baf2: 85 8b                        sta     PPU_SrcHi               
 baf4: a9 5f                        lda     #$5f                    
-baf6: 85 8a                        sta     $8a                     
+baf6: 85 8a                        sta     PPU_SrcLo               
 baf8: a9 22                        lda     #$22                    
-bafa: 85 89                        sta     $89                     
+bafa: 85 89                        sta     PPU_AddrHi              
 bafc: a9 0b                        lda     #$0b                    
-bafe: 85 88                        sta     $88                     
+bafe: 85 88                        sta     PPU_AddrLo              
 bb00: a9 09                        lda     #$09                    
-bb02: 85 87                        sta     $87                     
-bb04: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+bb02: 85 87                        sta     PPU_WriteCount          
+bb04: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bb07: a9 bc                        lda     #$bc                    
-bb09: 85 8b                        sta     $8b                     
+bb09: 85 8b                        sta     PPU_SrcHi               
 bb0b: a9 68                        lda     #$68                    
-bb0d: 85 8a                        sta     $8a                     
+bb0d: 85 8a                        sta     PPU_SrcLo               
 bb0f: a9 22                        lda     #$22                    
-bb11: 85 89                        sta     $89                     
+bb11: 85 89                        sta     PPU_AddrHi              
 bb13: a9 4b                        lda     #$4b                    
-bb15: 85 88                        sta     $88                     
+bb15: 85 88                        sta     PPU_AddrLo              
 bb17: a9 09                        lda     #$09                    
-bb19: 85 87                        sta     $87                     
-bb1b: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+bb19: 85 87                        sta     PPU_WriteCount          
+bb1b: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bb1e: ad c5 07                     lda     $07c5                   
 bb21: f0 17                        beq     <a href="#L_bb3a">L_bb3a</a>                  
 bb23: a9 bc                        lda     #$bc                    
-bb25: 85 8b                        sta     $8b                     
+bb25: 85 8b                        sta     PPU_SrcHi               
 bb27: a9 71                        lda     #$71                    
-bb29: 85 8a                        sta     $8a                     
+bb29: 85 8a                        sta     PPU_SrcLo               
 bb2b: a9 22                        lda     #$22                    
-bb2d: 85 89                        sta     $89                     
+bb2d: 85 89                        sta     PPU_AddrHi              
 bb2f: a9 8b                        lda     #$8b                    
-bb31: 85 88                        sta     $88                     
+bb31: 85 88                        sta     PPU_AddrLo              
 bb33: a9 08                        lda     #$08                    
-bb35: 85 87                        sta     $87                     
-bb37: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+bb35: 85 87                        sta     PPU_WriteCount          
+bb37: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bb3a: a9 bc        <span id="L_bb3a">L_bb3a</span>          lda     #$bc                    
-bb3c: 85 8b                        sta     $8b                     
+bb3c: 85 8b                        sta     PPU_SrcHi               
 bb3e: a9 79                        lda     #$79                    
-bb40: 85 8a                        sta     $8a                     
+bb40: 85 8a                        sta     PPU_SrcLo               
 bb42: a9 0d                        lda     #$0d                    
-bb44: 85 87                        sta     $87                     
+bb44: 85 87                        sta     PPU_WriteCount          
 bb46: a9 23                        lda     #$23                    
-bb48: 85 89                        sta     $89                     
+bb48: 85 89                        sta     PPU_AddrHi              
 bb4a: a9 09                        lda     #$09                    
-bb4c: 85 88                        sta     $88                     
-bb4e: 4c 1b 80                     jmp     <a href="#L_801b">L_801b</a>                  
+bb4c: 85 88                        sta     PPU_AddrLo              
+bb4e: 4c 1b 80                     jmp     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bb51: 0f 20 20 20 ..                .byte   $0f, $20, $20, $20, $0f, $20, $29, $09
 bb59: 0f 35 26 06 ..                .byte   $0f, $35, $26, $06, $0f, $16, $16, $16
 bb61: 0f 16 2c 1c ..                .byte   $0f, $16, $2c, $1c, $0f, $17, $2b, $21
@@ -4118,17 +4124,17 @@ bcaf: a9 0a 85 86 ..<span id="D_bcaf">D_bcaf</span>          .byte   $a9, $0a, $
 bcb7: 4c 51 c2                     .byte   $4c, $51, $c2
 bcba: a9 08 4c 6b ..<span id="D_bcba">D_bcba</span>          .byte   $a9, $08, $4c, $6b, $a0
 bcbf: a5 dd        <span id="L_bcbf">L_bcbf</span>          lda     $dd                     
-bcc1: 85 8a                        sta     $8a                     
+bcc1: 85 8a                        sta     PPU_SrcLo               
 bcc3: a5 de                        lda     $de                     
-bcc5: 85 8b                        sta     $8b                     
+bcc5: 85 8b                        sta     PPU_SrcHi               
 bcc7: a5 df                        lda     $df                     
-bcc9: 85 88                        sta     $88                     
+bcc9: 85 88                        sta     PPU_AddrLo              
 bccb: a5 e0                        lda     $e0                     
-bccd: 85 89                        sta     $89                     
+bccd: 85 89                        sta     PPU_AddrHi              
 bccf: a9 01                        lda     #$01                    
-bcd1: 85 87                        sta     $87                     
+bcd1: 85 87                        sta     PPU_WriteCount          
 bcd3: 85 86                        sta     $86                     
-bcd5: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+bcd5: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bcd8: 20 ba bc                     jsr     <a href="#L_bcba">L_bcba</a>                  
 bcdb: 20 af bc                     jsr     <a href="#L_bcaf">L_bcaf</a>                  
 bcde: e6 dd                        inc     $dd                     
@@ -4140,18 +4146,18 @@ bce8: e6 e0                        inc     $e0
 bcea: c6 e2        <span id="L_bcea">L_bcea</span>          dec     $e2                     
 bcec: d0 d1                        bne     <a href="#L_bcbf">L_bcbf</a>                  
 bcee: 4c af bc                     jmp     <a href="#L_bcaf">L_bcaf</a>                  
-bcf1: a5 8c        <span id="L_bcf1">L_bcf1</span>          lda     $8c                     
+bcf1: a5 8c        <span id="L_bcf1">L_bcf1</span>          lda     PPUCTRL_Shadow          
 bcf3: 29 fd                        and     #$fd                    
-bcf5: 85 8c                        sta     $8c                     
+bcf5: 85 8c                        sta     PPUCTRL_Shadow          
 bcf7: a9 00                        lda     #$00                    
 bcf9: 85 8f                        sta     $8f                     
 bcfb: 85 90                        sta     $90                     
 bcfd: 20 3d b9                     jsr     <a href="#L_b93d">L_b93d</a>                  
 bd00: 20 6c b9                     jsr     <a href="#L_b96c">L_b96c</a>                  
 bd03: a9 51                        lda     #$51                    
-bd05: 85 8a                        sta     $8a                     
+bd05: 85 8a                        sta     PPU_SrcLo               
 bd07: a9 bb                        lda     #$bb                    
-bd09: 85 8b                        sta     $8b                     
+bd09: 85 8b                        sta     PPU_SrcHi               
 bd0b: 20 5a a7                     jsr     <a href="#L_a75a">L_a75a</a>                  
 bd0e: a0 3f                        ldy     #$3f                    
 bd10: a9 00                        lda     #$00                    
@@ -4159,20 +4165,20 @@ bd12: 99 00 03     <span id="L_bd12">L_bd12</span>          sta     $0300,Y
 bd15: 88                           dey                             
 bd16: 10 fa                        bpl     <a href="#L_bd12">L_bd12</a>                  
 bd18: a9 bb                        lda     #$bb                    
-bd1a: 85 8b                        sta     $8b                     
+bd1a: 85 8b                        sta     PPU_SrcHi               
 bd1c: a9 71                        lda     #$71                    
-bd1e: 85 8a                        sta     $8a                     
+bd1e: 85 8a                        sta     PPU_SrcLo               
 bd20: a9 23                        lda     #$23                    
-bd22: 85 89                        sta     $89                     
+bd22: 85 89                        sta     PPU_AddrHi              
 bd24: a9 c0                        lda     #$c0                    
-bd26: 85 88                        sta     $88                     
+bd26: 85 88                        sta     PPU_AddrLo              
 bd28: a9 40                        lda     #$40                    
-bd2a: 85 87                        sta     $87                     
-bd2c: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
-bd2f: a5 8c                        lda     $8c                     
+bd2a: 85 87                        sta     PPU_WriteCount          
+bd2c: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
+bd2f: a5 8c                        lda     PPUCTRL_Shadow          
 bd31: 29 ef                        and     #$ef                    
 bd33: 09 08                        ora     #$08                    
-bd35: 85 8c                        sta     $8c                     
+bd35: 85 8c                        sta     PPUCTRL_Shadow          
 bd37: 4c 75 c2                     jmp     <a href="#L_c275">L_c275</a>                  
 bd3a: a9 07        <span id="L_bd3a">L_bd3a</span>          lda     #$07                    
 bd3c: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
@@ -4197,73 +4203,73 @@ bd67: c0 ff                        cpy     #$ff
 bd69: d0 f5                        bne     <a href="#L_bd60">L_bd60</a>                  
 bd6b: 20 f1 bc     <span id="L_bd6b">L_bd6b</span>          jsr     <a href="#L_bcf1">L_bcf1</a>                  
 bd6e: a9 bf                        lda     #$bf                    
-bd70: 85 8b                        sta     $8b                     
+bd70: 85 8b                        sta     PPU_SrcHi               
 bd72: a9 0f                        lda     #$0f                    
-bd74: 85 8a                        sta     $8a                     
+bd74: 85 8a                        sta     PPU_SrcLo               
 bd76: a9 20                        lda     #$20                    
-bd78: 85 89                        sta     $89                     
+bd78: 85 89                        sta     PPU_AddrHi              
 bd7a: a9 45                        lda     #$45                    
-bd7c: 85 88                        sta     $88                     
+bd7c: 85 88                        sta     PPU_AddrLo              
 bd7e: a9 03                        lda     #$03                    
-bd80: 85 87                        sta     $87                     
-bd82: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+bd80: 85 87                        sta     PPU_WriteCount          
+bd82: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bd85: a9 04                        lda     #$04                    
-bd87: 85 8b                        sta     $8b                     
+bd87: 85 8b                        sta     PPU_SrcHi               
 bd89: a9 4a                        lda     #$4a                    
-bd8b: 85 8a                        sta     $8a                     
+bd8b: 85 8a                        sta     PPU_SrcLo               
 bd8d: a9 20                        lda     #$20                    
-bd8f: 85 89                        sta     $89                     
+bd8f: 85 89                        sta     PPU_AddrHi              
 bd91: a9 63                        lda     #$63                    
-bd93: 85 88                        sta     $88                     
+bd93: 85 88                        sta     PPU_AddrLo              
 bd95: a9 06                        lda     #$06                    
-bd97: 85 87                        sta     $87                     
-bd99: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+bd97: 85 87                        sta     PPU_WriteCount          
+bd99: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bd9c: a9 bf                        lda     #$bf                    
-bd9e: 85 8b                        sta     $8b                     
+bd9e: 85 8b                        sta     PPU_SrcHi               
 bda0: a9 15                        lda     #$15                    
-bda2: 85 8a                        sta     $8a                     
+bda2: 85 8a                        sta     PPU_SrcLo               
 bda4: a9 20                        lda     #$20                    
-bda6: 85 89                        sta     $89                     
+bda6: 85 89                        sta     PPU_AddrHi              
 bda8: a9 4c                        lda     #$4c                    
-bdaa: 85 88                        sta     $88                     
+bdaa: 85 88                        sta     PPU_AddrLo              
 bdac: a9 08                        lda     #$08                    
-bdae: 85 87                        sta     $87                     
-bdb0: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+bdae: 85 87                        sta     PPU_WriteCount          
+bdb0: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bdb3: a9 07                        lda     #$07                    
-bdb5: 85 8b                        sta     $8b                     
+bdb5: 85 8b                        sta     PPU_SrcHi               
 bdb7: a9 bf                        lda     #$bf                    
-bdb9: 85 8a                        sta     $8a                     
+bdb9: 85 8a                        sta     PPU_SrcLo               
 bdbb: a9 20                        lda     #$20                    
-bdbd: 85 89                        sta     $89                     
+bdbd: 85 89                        sta     PPU_AddrHi              
 bdbf: a9 6d                        lda     #$6d                    
-bdc1: 85 88                        sta     $88                     
+bdc1: 85 88                        sta     PPU_AddrLo              
 bdc3: a9 06                        lda     #$06                    
-bdc5: 85 87                        sta     $87                     
-bdc7: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+bdc5: 85 87                        sta     PPU_WriteCount          
+bdc7: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bdca: ad 81 03                     lda     $0381                   
 bdcd: f0 2e                        beq     <a href="#L_bdfd">L_bdfd</a>                  
 bdcf: a9 bf                        lda     #$bf                    
-bdd1: 85 8b                        sta     $8b                     
+bdd1: 85 8b                        sta     PPU_SrcHi               
 bdd3: a9 12                        lda     #$12                    
-bdd5: 85 8a                        sta     $8a                     
+bdd5: 85 8a                        sta     PPU_SrcLo               
 bdd7: a9 20                        lda     #$20                    
-bdd9: 85 89                        sta     $89                     
+bdd9: 85 89                        sta     PPU_AddrHi              
 bddb: a9 59                        lda     #$59                    
-bddd: 85 88                        sta     $88                     
+bddd: 85 88                        sta     PPU_AddrLo              
 bddf: a9 03                        lda     #$03                    
-bde1: 85 87                        sta     $87                     
-bde3: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+bde1: 85 87                        sta     PPU_WriteCount          
+bde3: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bde6: a9 04                        lda     #$04                    
-bde8: 85 8b                        sta     $8b                     
+bde8: 85 8b                        sta     PPU_SrcHi               
 bdea: a9 6b                        lda     #$6b                    
-bdec: 85 8a                        sta     $8a                     
+bdec: 85 8a                        sta     PPU_SrcLo               
 bdee: a9 20                        lda     #$20                    
-bdf0: 85 89                        sta     $89                     
+bdf0: 85 89                        sta     PPU_AddrHi              
 bdf2: a9 77                        lda     #$77                    
-bdf4: 85 88                        sta     $88                     
+bdf4: 85 88                        sta     PPU_AddrLo              
 bdf6: a9 06                        lda     #$06                    
-bdf8: 85 87                        sta     $87                     
-bdfa: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+bdf8: 85 87                        sta     PPU_WriteCount          
+bdfa: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bdfd: a9 bf        <span id="L_bdfd">L_bdfd</span>          lda     #$bf                    
 bdff: 85 de                        sta     $de                     
 be01: a9 36                        lda     #$36                    
@@ -4302,9 +4308,9 @@ be45: ad 8b 03                     lda     $038b
 be48: d0 02                        bne     <a href="#L_be4c">L_be4c</a>                  
 be4a: a9 ff                        lda     #$ff                    
 be4c: 8d 20 07     <span id="L_be4c">L_be4c</span>          sta     $0720                   
-be4f: a5 8b                        lda     $8b                     
+be4f: a5 8b                        lda     PPU_SrcHi               
 be51: 8d 21 07                     sta     $0721                   
-be54: a5 8a                        lda     $8a                     
+be54: a5 8a                        lda     PPU_SrcLo               
 be56: 8d 22 07                     sta     $0722                   
 be59: a9 07                        lda     #$07                    
 be5b: 85 de                        sta     $de                     
@@ -4329,16 +4335,16 @@ be80: a9 01                        lda     #$01
 be82: 85 e2                        sta     $e2                     
 be84: 20 bf bc                     jsr     <a href="#L_bcbf">L_bcbf</a>                  
 be87: a9 bf                        lda     #$bf                    
-be89: 85 8b                        sta     $8b                     
+be89: 85 8b                        sta     PPU_SrcHi               
 be8b: a9 2d                        lda     #$2d                    
-be8d: 85 8a                        sta     $8a                     
+be8d: 85 8a                        sta     PPU_SrcLo               
 be8f: a9 22                        lda     #$22                    
-be91: 85 89                        sta     $89                     
+be91: 85 89                        sta     PPU_AddrHi              
 be93: a9 4b                        lda     #$4b                    
-be95: 85 88                        sta     $88                     
+be95: 85 88                        sta     PPU_AddrLo              
 be97: a9 09                        lda     #$09                    
-be99: 85 87                        sta     $87                     
-be9b: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+be99: 85 87                        sta     PPU_WriteCount          
+be9b: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 be9e: a9 ff                        lda     #$ff                    
 bea0: 8d 23 07                     sta     $0723                   
 bea3: a9 00                        lda     #$00                    
@@ -4356,20 +4362,20 @@ bebb: 8d 23 07                     sta     $0723
 bebe: ad 86 03                     lda     $0386                   
 bec1: f0 0b                        beq     <a href="#L_bece">L_bece</a>                  
 bec3: a9 bf                        lda     #$bf                    
-bec5: 85 8b                        sta     $8b                     
+bec5: 85 8b                        sta     PPU_SrcHi               
 bec7: a9 25                        lda     #$25                    
-bec9: 85 8a                        sta     $8a                     
+bec9: 85 8a                        sta     PPU_SrcLo               
 becb: 4c d6 be                     jmp     <a href="#L_bed6">L_bed6</a>                  
 bece: a9 bf 85 8b ..<span id="D_bece">D_bece</span>          .byte   $a9, $bf, $85, $8b, $a9, $1d, $85, $8a
 bed6: a9 21        <span id="L_bed6">L_bed6</span>          lda     #$21                    
-bed8: 85 89                        sta     $89                     
+bed8: 85 89                        sta     PPU_AddrHi              
 beda: a9 ec                        lda     #$ec                    
-bedc: 85 88                        sta     $88                     
+bedc: 85 88                        sta     PPU_AddrLo              
 bede: a9 08                        lda     #$08                    
-bee0: 85 87                        sta     $87                     
-bee2: 20 1b 80                     jsr     <a href="#L_801b">L_801b</a>                  
+bee0: 85 87                        sta     PPU_WriteCount          
+bee2: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
 bee5: a9 00                        lda     #$00                    
-bee7: 85 87                        sta     $87                     
+bee7: 85 87                        sta     PPU_WriteCount          
 bee9: a9 80                        lda     #$80                    
 beeb: 85 86                        sta     $86                     
 beed: 20 51 c2                     jsr     <a href="#L_c251">L_c251</a>                  
@@ -4378,9 +4384,9 @@ bef2: 29 e7                        and     #$e7
 bef4: 85 8d                        sta     $8d                     
 bef6: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 bef9: 20 6c b9                     jsr     <a href="#L_b96c">L_b96c</a>                  
-befc: a5 8c                        lda     $8c                     
+befc: a5 8c                        lda     PPUCTRL_Shadow          
 befe: 49 18                        eor     #$18                    
-bf00: 85 8c                        sta     $8c                     
+bf00: 85 8c                        sta     PPUCTRL_Shadow          
 bf02: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 bf05: a5 8d                        lda     $8d                     
 bf07: 09 18                        ora     #$18                    
@@ -4438,14 +4444,14 @@ bfa6: ad be 07                     lda     $07be
 bfa9: c9 aa                        cmp     #$aa                    
 bfab: f0 1d                        beq     <a href="#L_bfca">L_bfca</a>                  
 bfad: a9 07        <span id="L_bfad">L_bfad</span>          lda     #$07                    
-bfaf: 85 8b                        sta     $8b                     
+bfaf: 85 8b                        sta     PPU_SrcHi               
 bfb1: a9 00                        lda     #$00                    
-bfb3: 85 8a                        sta     $8a                     
+bfb3: 85 8a                        sta     PPU_SrcLo               
 bfb5: a9 00                        lda     #$00                    
 bfb7: 91 8a        <span id="L_bfb7">L_bfb7</span>          sta     ($8a),Y                 
 bfb9: c8                           iny                             
 bfba: d0 fb                        bne     <a href="#L_bfb7">L_bfb7</a>                  
-bfbc: c6 8b                        dec     $8b                     
+bfbc: c6 8b                        dec     PPU_SrcHi               
 bfbe: d0 f7                        bne     <a href="#L_bfb7">L_bfb7</a>                  
 bfc0: a9 55                        lda     #$55                    
 bfc2: 8d bd 07                     sta     $07bd                   
@@ -4463,7 +4469,7 @@ bfda: 85 8d                        sta     $8d
 bfdc: a9 10                        lda     #$10                    
 bfde: 8d 00 20                     sta     PPUCTRL                 
 bfe1: a9 10                        lda     #$10                    
-bfe3: 85 8c                        sta     $8c                     
+bfe3: 85 8c                        sta     PPUCTRL_Shadow          
 bfe5: a9 00                        lda     #$00                    
 bfe7: 8d 05 20                     sta     PPUSCROLL               
 bfea: 85 8f                        sta     $8f                     
@@ -4499,10 +4505,10 @@ c02d: 4c c0 c2                     jmp     <a href="#L_c2c0">L_c2c0</a>
 c030: 85 63        <span id="L_c030">L_c030</span>          sta     $63                     ; NMI entry point
 c032: 86 64                        stx     $64                     
 c034: 84 65                        sty     $65                     
-c036: a5 8c                        lda     $8c                     
+c036: a5 8c                        lda     PPUCTRL_Shadow          
 c038: 29 7f                        and     #$7f                    
 c03a: 8d 00 20                     sta     PPUCTRL                 
-c03d: 85 8c                        sta     $8c                     
+c03d: 85 8c                        sta     PPUCTRL_Shadow          
 c03f: a9 00                        lda     #$00                    
 c041: 8d 03 20                     sta     OAMADDR                 
 c044: a9 02                        lda     #$02                    
@@ -4580,7 +4586,7 @@ c0e5: a9 00                        lda     #$00
 c0e7: 8d 05 20                     sta     PPUSCROLL               
 c0ea: a5 90                        lda     $90                     
 c0ec: 8d 05 20                     sta     PPUSCROLL               
-c0ef: a5 8c                        lda     $8c                     
+c0ef: a5 8c                        lda     PPUCTRL_Shadow          
 c0f1: 8d 00 20                     sta     PPUCTRL                 
 c0f4: a5 8d                        lda     $8d                     
 c0f6: 8d 01 20                     sta     PPUMASK                 
@@ -4660,10 +4666,10 @@ c195: 99 24 02     <span id="L_c195">L_c195</span>          sta     $0224,Y
 c198: c8                           iny                             
 c199: c0 0c                        cpy     #$0c                    
 c19b: 90 f8                        bcc     <a href="#L_c195">L_c195</a>                  
-c19d: a5 8c        <span id="L_c19d">L_c19d</span>          lda     $8c                     
+c19d: a5 8c        <span id="L_c19d">L_c19d</span>          lda     PPUCTRL_Shadow          
 c19f: 09 80                        ora     #$80                    
 c1a1: 8d 00 20                     sta     PPUCTRL                 
-c1a4: 85 8c                        sta     $8c                     
+c1a4: 85 8c                        sta     PPUCTRL_Shadow          
 c1a6: a4 65                        ldy     $65                     
 c1a8: a6 64                        ldx     $64                     
 c1aa: a5 63                        lda     $63                     
@@ -4722,9 +4728,9 @@ c209: 95 02                        sta     $02,X
 c20b: bd 8a c3                     lda     $c38a,X                 
 c20e: 38                           sec                             
 c20f: e9 02                        sbc     #$02                    
-c211: 85 88                        sta     $88                     
+c211: 85 88                        sta     PPU_AddrLo              
 c213: a9 01                        lda     #$01                    
-c215: 85 89                        sta     $89                     
+c215: 85 89                        sta     PPU_AddrHi              
 c217: a0 00                        ldy     #$00                    
 c219: a9 04                        lda     #$04                    
 c21b: 91 88                        sta     ($88),Y                 
@@ -4735,7 +4741,7 @@ c223: c8                           iny
 c224: bd ab c3                     lda     $c3ab,X                 
 c227: 91 88                        sta     ($88),Y                 
 c229: 38                           sec                             
-c22a: a5 88                        lda     $88                     
+c22a: a5 88                        lda     PPU_AddrLo              
 c22c: e9 02                        sbc     #$02                    
 c22e: 95 03                        sta     $03,X                   
 c230: 68           <span id="L_c230">L_c230</span>          pla                             
@@ -4774,7 +4780,7 @@ c263: 09 40                        ora     #$40
 c265: 95 02                        sta     $02,X                   
 c267: a5 86                        lda     $86                     
 c269: 95 22                        sta     $22,X                   
-c26b: a5 87                        lda     $87                     
+c26b: a5 87                        lda     PPU_WriteCount          
 c26d: 95 23                        sta     $23,X                   
 c26f: 4c c0 c2                     jmp     <a href="#L_c2c0">L_c2c0</a>                  
 c272: 20 75 c2                     .byte   $20, $75, $c2
@@ -4837,9 +4843,9 @@ c2d8: a9 00        <span id="L_c2d8">L_c2d8</span>          lda     #$00
 c2da: 85 00                        sta     $00                     
 c2dc: a2 f3                        ldx     #$f3                    
 c2de: 9a                           txs                             
-c2df: a5 8c                        lda     $8c                     
+c2df: a5 8c                        lda     PPUCTRL_Shadow          
 c2e1: 09 80                        ora     #$80                    
-c2e3: 85 8c                        sta     $8c                     
+c2e3: 85 8c                        sta     PPUCTRL_Shadow          
 c2e5: 8d 00 20                     sta     PPUCTRL                 
 c2e8: a5 62        <span id="L_c2e8">L_c2e8</span>          lda     $62                     
 c2ea: c9 03                        cmp     #$03                    
@@ -4883,8 +4889,8 @@ c32f: 9d 8e 04                     sta     $048e,X
 c332: 9d d9 04                     sta     $04d9,X                 
 c335: 9d 0b 05                     sta     $050b,X                 
 c338: 9d ba 05                     sta     $05ba,X                 
-c33b: 9d c0 04                     sta     Player_X,X              
-c33e: 9d a7 04                     sta     Player_Y,X              
+c33b: 9d c0 04                     sta     Entity_X,X              
+c33e: 9d a7 04                     sta     Entity_Y,X              
 c341: 9d 6f 05                     sta     $056f,X                 
 c344: 9d 88 05                     sta     $0588,X                 
 c347: 9d a1 05                     sta     $05a1,X                 
@@ -4923,7 +4929,7 @@ c3ca: a2 00        <span id="L_c3ca">L_c3ca</span>          ldx     #$00
 c3cc: a0 00                        ldy     #$00                    
 c3ce: bd 8e 04     <span id="L_c3ce">L_c3ce</span>          lda     $048e,X                 
 c3d1: 10 20                        bpl     <a href="#L_c3f3">L_c3f3</a>                  
-c3d3: bd a7 04                     lda     Player_Y,X              
+c3d3: bd a7 04                     lda     Entity_Y,X              
 c3d6: 99 af 03                     sta     Player_OAM_Y,Y          
 c3d9: c8                           iny                             
 c3da: bd d9 04                     lda     $04d9,X                 
@@ -4932,7 +4938,7 @@ c3e0: c8                           iny
 c3e1: bd f2 04                     lda     $04f2,X                 
 c3e4: 99 af 03                     sta     Player_OAM_Y,Y          
 c3e7: c8                           iny                             
-c3e8: bd c0 04                     lda     Player_X,X              
+c3e8: bd c0 04                     lda     Entity_X,X              
 c3eb: 99 af 03                     sta     Player_OAM_Y,Y          
 c3ee: c8                           iny                             
 c3ef: c0 74                        cpy     #$74                    
@@ -4941,11 +4947,11 @@ c3f3: e8           <span id="L_c3f3">L_c3f3</span>          inx
 c3f4: e0 19                        cpx     #$19                    
 c3f6: d0 d6                        bne     <a href="#L_c3ce">L_c3ce</a>                  
 c3f8: a9 04        <span id="L_c3f8">L_c3f8</span>          lda     #$04                    
-c3fa: 85 87                        sta     $87                     
+c3fa: 85 87                        sta     PPU_WriteCount          
 c3fc: a9 ff        <span id="L_c3fc">L_c3fc</span>          lda     #$ff                    
 c3fe: 99 af 03                     sta     Player_OAM_Y,Y          
 c401: c8                           iny                             
-c402: c6 87                        dec     $87                     
+c402: c6 87                        dec     PPU_WriteCount          
 c404: d0 f6                        bne     <a href="#L_c3fc">L_c3fc</a>                  
 c406: a9 af                        lda     #$af                    
 c408: 85 9c                        sta     $9c                     
@@ -4967,10 +4973,10 @@ c42f: a9 64 85 9e ..<span id="D_c42f">D_c42f</span>          .byte   $a9, $64, $
 c437: 20 5a c4     <span id="L_c437">L_c437</span>          jsr     <a href="#L_c45a">L_c45a</a>                  
 c43a: a0 00                        ldy     #$00                    
 c43c: a5 9e                        lda     $9e                     
-c43e: 85 8a                        sta     $8a                     
+c43e: 85 8a                        sta     PPU_SrcLo               
 c440: a5 9f                        lda     $9f                     
-c442: 85 8b                        sta     $8b                     
-c444: a5 8b        <span id="L_c444">L_c444</span>          lda     $8b                     
+c442: 85 8b                        sta     PPU_SrcHi               
+c444: a5 8b        <span id="L_c444">L_c444</span>          lda     PPU_SrcHi               
 c446: c9 03                        cmp     #$03                    
 c448: b0 0a                        bcs     <a href="#L_c454">L_c454</a>                  
 c44a: a9 ff                        lda     #$ff                    
@@ -4992,7 +4998,7 @@ c4aa: a0 02 b1 9c ..                .byte   $a0, $02, $b1, $9c, $0a, $69, $10, $
 c4b2: 88           <span id="L_c4b2">L_c4b2</span>          dey                             
 c4b3: a9 00                        lda     #$00                    
 c4b5: 69 d0                        adc     #$d0                    
-c4b7: 85 89                        sta     $89                     
+c4b7: 85 89                        sta     PPU_AddrHi              
 c4b9: a0 00                        ldy     #$00                    
 c4bb: b1 88                        lda     ($88),Y                 
 c4bd: 85 a0                        sta     $a0                     
@@ -5039,7 +5045,7 @@ c50b: 85 9f                        sta     $9f
 c50d: c9 03                        cmp     #$03                    
 c50f: 90 01                        bcc     <a href="#L_c512">L_c512</a>                  
 c511: 60                           rts                             
-c512: c6 87        <span id="L_c512">L_c512</span>          dec     $87                     
+c512: c6 87        <span id="L_c512">L_c512</span>          dec     PPU_WriteCount          
 c514: d0 ae                        bne     <a href="#L_c4c4">L_c4c4</a>                  
 c516: 18                           clc                             
 c517: a5 9c                        lda     $9c                     
@@ -5550,7 +5556,7 @@ d11b: 20 9a d1     <span id="L_d11b">L_d11b</span>          jsr     <a href="#L_
 d11e: c9 14                        cmp     #$14                    
 d120: 90 f9                        bcc     <a href="#L_d11b">L_d11b</a>                  
 d122: 20 9a d1     <span id="L_d122">L_d122</span>          jsr     <a href="#L_d19a">L_d19a</a>                  
-d125: bd a7 04                     lda     Player_Y,X              
+d125: bd a7 04                     lda     Entity_Y,X              
 d128: c9 c0                        cmp     #$c0                    
 d12a: 90 f6                        bcc     <a href="#L_d122">L_d122</a>                  
 d12c: ee d9 04                     inc     $04d9                   
@@ -5837,7 +5843,7 @@ d4ca: 04 c9 30 90 ..                .byte   $04, $c9, $30, $90, $03, $20, $89, $
 d4d2: 4c 92 d5                     .byte   $4c, $92, $d5
 d4d5: a9 02        <span id="L_d4d5">L_d4d5</span>          lda     #$02                    
 d4d7: 20 93 d5                     jsr     <a href="#L_d593">L_d593</a>                  
-d4da: bd c0 04                     lda     Player_X,X              
+d4da: bd c0 04                     lda     Entity_X,X              
 d4dd: c9 e4                        cmp     #$e4                    
 d4df: 90 03                        bcc     <a href="#L_d4e4">L_d4e4</a>                  
 d4e1: 4c ee d4                     jmp     <a href="#L_d4ee">L_d4ee</a>                  
@@ -5848,14 +5854,14 @@ d4f6: 92 d5 a9 00 ..                .byte   $92, $d5, $a9, $00, $20, $93, $d5, $
 d4fe: c8 d4                        .byte   $c8, $d4
 d500: a9 04        <span id="L_d500">L_d500</span>          lda     #$04                    
 d502: 20 93 d5                     jsr     <a href="#L_d593">L_d593</a>                  
-d505: bd c0 04                     lda     Player_X,X              
+d505: bd c0 04                     lda     Entity_X,X              
 d508: c9 e4                        cmp     #$e4                    
 d50a: 90 03                        bcc     <a href="#L_d50f">L_d50f</a>                  
 d50c: 4c 92 d5                     jmp     <a href="#L_d592">L_d592</a>                  
 d50f: 4c 89 d5     <span id="D_d50f">D_d50f</span>          .byte   $4c, $89, $d5
 d512: a9 0c        <span id="L_d512">L_d512</span>          lda     #$0c                    
 d514: 20 93 d5                     jsr     <a href="#L_d593">L_d593</a>                  
-d517: bd c0 04                     lda     Player_X,X              
+d517: bd c0 04                     lda     Entity_X,X              
 d51a: c9 1c                        cmp     #$1c                    
 d51c: 90 03                        bcc     <a href="#L_d521">L_d521</a>                  
 d51e: 4c 24 d5                     jmp     <a href="#L_d524">L_d524</a>                  
@@ -5863,10 +5869,10 @@ d521: 4c 92 d5     <span id="D_d521">D_d521</span>          .byte   $4c, $92, $d
 d524: 4c 89 d5     <span id="D_d524">D_d524</span>          .byte   $4c, $89, $d5
 d527: a9 0a        <span id="L_d527">L_d527</span>          lda     #$0a                    
 d529: 20 93 d5                     jsr     <a href="#L_d593">L_d593</a>                  
-d52c: bd a7 04                     lda     Player_Y,X              
+d52c: bd a7 04                     lda     Entity_Y,X              
 d52f: c9 c0                        cmp     #$c0                    
 d531: 90 0d                        bcc     <a href="#L_d540">L_d540</a>                  
-d533: bd c0 04                     lda     Player_X,X              
+d533: bd c0 04                     lda     Entity_X,X              
 d536: c9 1c                        cmp     #$1c                    
 d538: 90 03                        bcc     <a href="#L_d53d">L_d53d</a>                  
 d53a: 4c 12 d5                     jmp     <a href="#L_d512">L_d512</a>                  
@@ -5876,10 +5882,10 @@ d548: 89 d5 bd a7 ..                .byte   $89, $d5, $bd, $a7, $04, $c9, $c0, $
 d550: 41 4c 89 d5                  .byte   $41, $4c, $89, $d5
 d554: a9 06        <span id="L_d554">L_d554</span>          lda     #$06                    
 d556: 20 93 d5                     jsr     <a href="#L_d593">L_d593</a>                  
-d559: bd a7 04                     lda     Player_Y,X              
+d559: bd a7 04                     lda     Entity_Y,X              
 d55c: c9 c0                        cmp     #$c0                    
 d55e: 90 0d                        bcc     <a href="#L_d56d">L_d56d</a>                  
-d560: bd c0 04                     lda     Player_X,X              
+d560: bd c0 04                     lda     Entity_X,X              
 d563: c9 e4                        cmp     #$e4                    
 d565: b0 03                        bcs     <a href="#L_d56a">L_d56a</a>                  
 d567: 4c 00 d5                     jmp     <a href="#L_d500">L_d500</a>                  
@@ -5934,7 +5940,7 @@ d5eb: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>
 d5ee: a9 5a                        lda     #$5a                    
 d5f0: 85 86                        sta     $86                     
 d5f2: a9 00                        lda     #$00                    
-d5f4: 85 87                        sta     $87                     
+d5f4: 85 87                        sta     PPU_WriteCount          
 d5f6: 20 51 c2                     jsr     <a href="#L_c251">L_c251</a>                  
 d5f9: a9 ff                        lda     #$ff                    
 d5fb: 8d 8c 04                     sta     $048c                   
@@ -6118,8 +6124,8 @@ d7d0: 8d a1 03                     sta     $03a1
 d7d3: 20 00 80     <span id="L_d7d3">L_d7d3</span>          jsr     <a href="#L_8000">L_8000</a>                  
 d7d6: 20 3e a7                     jsr     <a href="#L_a73e">L_a73e</a>                  
 d7d9: a9 00                        lda     #$00                    
-d7db: 85 8b                        sta     $8b                     
-d7dd: 85 8a                        sta     $8a                     
+d7db: 85 8b                        sta     PPU_SrcHi               
+d7dd: 85 8a                        sta     PPU_SrcLo               
 d7df: 20 14 ac                     jsr     <a href="#L_ac14">L_ac14</a>                  
 d7e2: a5 8d                        lda     $8d                     
 d7e4: 09 18                        ora     #$18                    
@@ -6853,9 +6859,9 @@ dece: ad 8b 03                     lda     $038b
 ded1: d0 02                        bne     <a href="#L_ded5">L_ded5</a>                  
 ded3: a9 ff                        lda     #$ff                    
 ded5: 8d 20 07     <span id="L_ded5">L_ded5</span>          sta     $0720                   
-ded8: a5 8b                        lda     $8b                     
+ded8: a5 8b                        lda     PPU_SrcHi               
 deda: 8d 21 07                     sta     $0721                   
-dedd: a5 8a                        lda     $8a                     
+dedd: a5 8a                        lda     PPU_SrcLo               
 dedf: 8d 22 07                     sta     $0722                   
 dee2: a0 00                        ldy     #$00                    
 dee4: b9 ac e1     <span id="L_dee4">L_dee4</span>          lda     $e1ac,Y                 
@@ -6893,16 +6899,16 @@ df23: 0a                           asl     A
 df24: 0a                           asl     A                       
 df25: a8                           tay                             
 df26: b9 58 df                     lda     $df58,Y                 
-df29: 85 89                        sta     $89                     
+df29: 85 89                        sta     PPU_AddrHi              
 df2b: c8                           iny                             
 df2c: b9 58 df                     lda     $df58,Y                 
-df2f: 85 88                        sta     $88                     
+df2f: 85 88                        sta     PPU_AddrLo              
 df31: c8                           iny                             
 df32: b9 58 df                     lda     $df58,Y                 
-df35: 85 8b                        sta     $8b                     
+df35: 85 8b                        sta     PPU_SrcHi               
 df37: c8                           iny                             
 df38: b9 58 df                     lda     $df58,Y                 
-df3b: 85 8a                        sta     $8a                     
+df3b: 85 8a                        sta     PPU_SrcLo               
 df3d: c8                           iny                             
 df3e: b9 58 df                     lda     $df58,Y                 
 df41: 85 e0                        sta     $e0                     
@@ -6930,16 +6936,16 @@ df89: 0a                           asl     A
 df8a: 0a                           asl     A                       
 df8b: a8                           tay                             
 df8c: b9 be df                     lda     $dfbe,Y                 
-df8f: 85 89                        sta     $89                     
+df8f: 85 89                        sta     PPU_AddrHi              
 df91: c8                           iny                             
 df92: b9 be df                     lda     $dfbe,Y                 
-df95: 85 88                        sta     $88                     
+df95: 85 88                        sta     PPU_AddrLo              
 df97: c8                           iny                             
 df98: b9 be df                     lda     $dfbe,Y                 
-df9b: 85 8b                        sta     $8b                     
+df9b: 85 8b                        sta     PPU_SrcHi               
 df9d: c8                           iny                             
 df9e: b9 be df                     lda     $dfbe,Y                 
-dfa1: 85 8a                        sta     $8a                     
+dfa1: 85 8a                        sta     PPU_SrcLo               
 dfa3: c8                           iny                             
 dfa4: b9 be df                     lda     $dfbe,Y                 
 dfa7: 85 e0                        sta     $e0                     
@@ -6959,10 +6965,10 @@ dfce: 00 03 00 00 ..                .byte   $00, $03, $00, $00, $ff, $ff, $03, $
 dfd6: 00 08 00 00 ..                .byte   $00, $08, $00, $00, $ff, $ff, $08, $00
 dfde: 02 00 00 00 ..                .byte   $02, $00, $00, $00, $ff, $02, $00, $00
 dfe6: a9 00        <span id="L_dfe6">L_dfe6</span>          lda     #$00                    
-dfe8: 85 89                        sta     $89                     
-dfea: 85 88                        sta     $88                     
-dfec: 85 8b                        sta     $8b                     
-dfee: 85 8a                        sta     $8a                     
+dfe8: 85 89                        sta     PPU_AddrHi              
+dfea: 85 88                        sta     PPU_AddrLo              
+dfec: 85 8b                        sta     PPU_SrcHi               
+dfee: 85 8a                        sta     PPU_SrcLo               
 dff0: a9 ff                        lda     #$ff                    
 dff2: 85 e0                        sta     $e0                     
 dff4: 85 df                        sta     $df                     
@@ -6972,9 +6978,9 @@ dffa: 4c 13 e0                     jmp     <a href="#L_e013">L_e013</a>
 dffd: a9 0a 85 89 ..<span id="D_dffd">D_dffd</span>          .byte   $a9, $0a, $85, $89, $a9, $01
 e003: 85 e0        <span id="L_e003">L_e003</span>          sta     $e0                     
 e005: a9 00                        lda     #$00                    
-e007: 85 8a                        sta     $8a                     
-e009: 85 8b                        sta     $8b                     
-e00b: 85 88                        sta     $88                     
+e007: 85 8a                        sta     PPU_SrcLo               
+e009: 85 8b                        sta     PPU_SrcHi               
+e00b: 85 88                        sta     PPU_AddrLo              
 e00d: 85 dd                        sta     $dd                     
 e00f: 85 de                        sta     $de                     
 e011: 85 df                        sta     $df                     
@@ -7007,24 +7013,24 @@ e042: c0 04                        cpy     #$04
 e044: 90 f1                        bcc     <a href="#L_e037">L_e037</a>                  
 e046: 20 1a ac                     jsr     <a href="#L_ac1a">L_ac1a</a>                  
 e049: a9 00                        lda     #$00                    
-e04b: 85 8b                        sta     $8b                     
-e04d: 85 8a                        sta     $8a                     
+e04b: 85 8b                        sta     PPU_SrcHi               
+e04d: 85 8a                        sta     PPU_SrcLo               
 e04f: ad 36 04                     lda     Rolls                   
 e052: f0 09                        beq     <a href="#L_e05d">L_e05d</a>                  
-e054: 85 87                        sta     $87                     
+e054: 85 87                        sta     PPU_WriteCount          
 e056: 20 16 a8     <span id="L_e056">L_e056</span>          jsr     <a href="#L_a816">L_a816</a>                  
-e059: c6 87                        dec     $87                     
+e059: c6 87                        dec     PPU_WriteCount          
 e05b: d0 f9                        bne     <a href="#L_e056">L_e056</a>                  
-e05d: a5 8b        <span id="L_e05d">L_e05d</span>          lda     $8b                     
-e05f: 85 89                        sta     $89                     
+e05d: a5 8b        <span id="L_e05d">L_e05d</span>          lda     PPU_SrcHi               
+e05f: 85 89                        sta     PPU_AddrHi              
 e061: 85 d6                        sta     $d6                     
-e063: a5 8a                        lda     $8a                     
-e065: 85 88                        sta     $88                     
+e063: a5 8a                        lda     PPU_SrcLo               
+e065: 85 88                        sta     PPU_AddrLo              
 e067: 85 d7                        sta     $d7                     
 e069: a9 00                        lda     #$00                    
-e06b: 85 8b                        sta     $8b                     
+e06b: 85 8b                        sta     PPU_SrcHi               
 e06d: 85 d8                        sta     $d8                     
-e06f: 85 8a                        sta     $8a                     
+e06f: 85 8a                        sta     PPU_SrcLo               
 e071: 85 d9                        sta     $d9                     
 e073: a0 00                        ldy     #$00                    
 e075: a2 24                        ldx     #$24                    
@@ -7116,7 +7122,7 @@ e138: a9 0d        <span id="L_e138">L_e138</span>          lda     #$0d
 e13a: 20 5b a0                     jsr     <a href="#L_a05b">L_a05b</a>                  
 e13d: b0 f9                        bcs     <a href="#L_e138">L_e138</a>                  
 e13f: a9 00                        lda     #$00                    
-e141: 85 87                        sta     $87                     
+e141: 85 87                        sta     PPU_WriteCount          
 e143: a9 78                        lda     #$78                    
 e145: 85 86                        sta     $86                     
 e147: 20 51 c2                     jsr     <a href="#L_c251">L_c251</a>                  
@@ -7148,7 +7154,7 @@ e184: 20 bf bc                     jsr     <a href="#L_bcbf">L_bcbf</a>
 e187: a9 1e                        lda     #$1e                    
 e189: 85 86                        sta     $86                     
 e18b: a9 00                        lda     #$00                    
-e18d: 85 87                        sta     $87                     
+e18d: 85 87                        sta     PPU_WriteCount          
 e18f: 8d 31 04                     sta     Lives_Tens              
 e192: 8d 32 04                     sta     Lives_Ones              
 e195: 8d c5 07                     sta     $07c5                   
@@ -7641,18 +7647,18 @@ ecbf: f0 03                        beq     <a href="#L_ecc4">L_ecc4</a>
 ecc1: 4c 5f ee                     jmp     <a href="#L_ee5f">L_ee5f</a>                  
 ecc4: 4c 36 ee     <span id="D_ecc4">D_ecc4</span>          .byte   $4c, $36, $ee
 ecc7: a9 60        <span id="L_ecc7">L_ecc7</span>          lda     #$60                    
-ecc9: 9d c0 04                     sta     Player_X,X              
+ecc9: 9d c0 04                     sta     Entity_X,X              
 eccc: a9 88                        lda     #$88                    
-ecce: 9d a7 04                     sta     Player_Y,X              
+ecce: 9d a7 04                     sta     Entity_Y,X              
 ecd1: ad 86 03                     lda     $0386                   
 ecd4: f0 06                        beq     <a href="#L_ecdc">L_ecdc</a>                  
 ecd6: fe d9 04                     inc     $04d9,X                 
 ecd9: fe d9 04                     inc     $04d9,X                 
 ecdc: 4c 57 ed     <span id="L_ecdc">L_ecdc</span>          jmp     <a href="#L_ed57">L_ed57</a>                  
 ecdf: a9 58        <span id="L_ecdf">L_ecdf</span>          lda     #$58                    
-ece1: 9d c0 04                     sta     Player_X,X              
+ece1: 9d c0 04                     sta     Entity_X,X              
 ece4: a9 a8                        lda     #$a8                    
-ece6: 9d a7 04                     sta     Player_Y,X              
+ece6: 9d a7 04                     sta     Entity_Y,X              
 ece9: a9 04                        lda     #$04                    
 eceb: 9d f2 04                     sta     $04f2,X                 
 ecee: 4c 5c ed                     jmp     <a href="#L_ed5c">L_ed5c</a>                  
@@ -7668,9 +7674,9 @@ ed03: f0 03                        beq     <a href="#L_ed08">L_ed08</a>
 ed05: 4c 5f ee                     jmp     <a href="#L_ee5f">L_ee5f</a>                  
 ed08: 4c 36 ee     <span id="D_ed08">D_ed08</span>          .byte   $4c, $36, $ee
 ed0b: a9 18        <span id="L_ed0b">L_ed0b</span>          lda     #$18                    
-ed0d: 9d c0 04                     sta     Player_X,X              
+ed0d: 9d c0 04                     sta     Entity_X,X              
 ed10: a9 d0                        lda     #$d0                    
-ed12: 9d a7 04                     sta     Player_Y,X              
+ed12: 9d a7 04                     sta     Entity_Y,X              
 ed15: a9 03                        lda     #$03                    
 ed17: 9d f2 04                     sta     $04f2,X                 
 ed1a: 4c 5c ed                     jmp     <a href="#L_ed5c">L_ed5c</a>                  
@@ -7757,9 +7763,9 @@ ee08: f0 06                        beq     <a href="#L_ee10">L_ee10</a>
 ee0a: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 ee0d: 4c 9d ed                     jmp     <a href="#L_ed9d">L_ed9d</a>                  
 ee10: a9 78        <span id="L_ee10">L_ee10</span>          lda     #$78                    
-ee12: 9d c0 04                     sta     Player_X,X              
+ee12: 9d c0 04                     sta     Entity_X,X              
 ee15: a9 78                        lda     #$78                    
-ee17: 9d a7 04                     sta     Player_Y,X              
+ee17: 9d a7 04                     sta     Entity_Y,X              
 ee1a: a9 88                        lda     #$88                    
 ee1c: 9d 8e 04                     sta     $048e,X                 
 ee1f: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
@@ -7799,10 +7805,10 @@ ee79: bd d3 05                     lda     $05d3,X
 ee7c: 0a                           asl     A                       
 ee7d: a8                           tay                             
 ee7e: b9 f2 ef                     lda     $eff2,Y                 
-ee81: 85 8a                        sta     $8a                     
+ee81: 85 8a                        sta     PPU_SrcLo               
 ee83: c8                           iny                             
 ee84: b9 f2 ef                     lda     $eff2,Y                 
-ee87: 85 8b                        sta     $8b                     
+ee87: 85 8b                        sta     PPU_SrcHi               
 ee89: 6c 8a 00                     jmp     ($008a)                 
 ee8c: a9 00        <span id="L_ee8c">L_ee8c</span>          lda     #$00                    
 ee8e: 9d d3 05                     sta     $05d3,X                 
@@ -8113,7 +8119,7 @@ f272: 09 04 9d 8e ..                .byte   $09, $04, $9d, $8e, $04
 f277: bd d3 05     <span id="L_f277">L_f277</span>          lda     $05d3,X                 
 f27a: c9 07                        cmp     #$07                    
 f27c: d0 08                        bne     <a href="#L_f286">L_f286</a>                  
-f27e: bd a7 04                     lda     Player_Y,X              
+f27e: bd a7 04                     lda     Entity_Y,X              
 f281: c9 78                        cmp     #$78                    
 f283: 90 01                        bcc     <a href="#L_f286">L_f286</a>                  
 f285: 60                           rts                             
@@ -8295,16 +8301,16 @@ f461: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>
 f464: 4c 57 f4                     jmp     <a href="#L_f457">L_f457</a>                  
 f467: 20 32 fa     <span id="L_f467">L_f467</span>          jsr     <a href="#L_fa32">L_fa32</a>                  
 f46a: a0 00                        ldy     #$00                    
-f46c: b9 a7 04                     lda     Player_Y,Y              
+f46c: b9 a7 04                     lda     Entity_Y,Y              
 f46f: 38                           sec                             
 f470: e9 40                        sbc     #$40                    
 f472: 90 05                        bcc     <a href="#L_f479">L_f479</a>                  
-f474: dd a7 04                     cmp     Player_Y,X              
+f474: dd a7 04                     cmp     Entity_Y,X              
 f477: b0 0b                        bcs     <a href="#L_f484">L_f484</a>                  
-f479: b9 a7 04     <span id="L_f479">L_f479</span>          lda     Player_Y,Y              
+f479: b9 a7 04     <span id="L_f479">L_f479</span>          lda     Entity_Y,Y              
 f47c: 38                           sec                             
 f47d: e9 20                        sbc     #$20                    
-f47f: dd a7 04                     cmp     Player_Y,X              
+f47f: dd a7 04                     cmp     Entity_Y,X              
 f482: b0 13                        bcs     <a href="#L_f497">L_f497</a>                  
 f484: 20 fc f7     <span id="L_f484">L_f484</span>          jsr     <a href="#L_f7fc">L_f7fc</a>                  
 f487: 90 03                        bcc     <a href="#L_f48c">L_f48c</a>                  
@@ -8313,17 +8319,17 @@ f48c: 20 75 c2 20 ..<span id="D_f48c">D_f48c</span>          .byte   $20, $75, $
 f494: 4c 3c f8                     .byte   $4c, $3c, $f8
 f497: 20 75 c2     <span id="L_f497">L_f497</span>          jsr     <a href="#L_c275">L_c275</a>                  
 f49a: a0 00                        ldy     #$00                    
-f49c: b9 c0 04                     lda     Player_X,Y              
+f49c: b9 c0 04                     lda     Entity_X,Y              
 f49f: 38                           sec                             
 f4a0: e9 50                        sbc     #$50                    
 f4a2: 90 05                        bcc     <a href="#L_f4a9">L_f4a9</a>                  
-f4a4: dd c0 04                     cmp     Player_X,X              
+f4a4: dd c0 04                     cmp     Entity_X,X              
 f4a7: b0 ae                        bcs     <a href="#L_f457">L_f457</a>                  
-f4a9: b9 c0 04     <span id="L_f4a9">L_f4a9</span>          lda     Player_X,Y              
+f4a9: b9 c0 04     <span id="L_f4a9">L_f4a9</span>          lda     Entity_X,Y              
 f4ac: 18                           clc                             
 f4ad: 69 50                        adc     #$50                    
 f4af: b0 08                        bcs     <a href="#L_f4b9">L_f4b9</a>                  
-f4b1: dd c0 04                     cmp     Player_X,X              
+f4b1: dd c0 04                     cmp     Entity_X,X              
 f4b4: b0 03                        bcs     <a href="#L_f4b9">L_f4b9</a>                  
 f4b6: 4c 57 f4                     jmp     <a href="#L_f457">L_f457</a>                  
 f4b9: 60           <span id="D_f4b9">D_f4b9</span>          .byte   $60
@@ -8516,10 +8522,10 @@ f6d5: e9 0a                        sbc     #$0a
 f6d7: 0a                           asl     A                       
 f6d8: a8                           tay                             
 f6d9: b9 4a fd                     lda     $fd4a,Y                 
-f6dc: 85 8a                        sta     $8a                     
+f6dc: 85 8a                        sta     PPU_SrcLo               
 f6de: c8                           iny                             
 f6df: b9 4a fd                     lda     $fd4a,Y                 
-f6e2: 85 8b                        sta     $8b                     
+f6e2: 85 8b                        sta     PPU_SrcHi               
 f6e4: bc 82 06                     ldy     $0682,X                 
 f6e7: 60                           rts                             
 f6e8: bd 8e 04     <span id="L_f6e8">L_f6e8</span>          lda     $048e,X                 
@@ -8527,7 +8533,7 @@ f6eb: 09 02                        ora     #$02
 f6ed: 9d 8e 04                     sta     $048e,X                 
 f6f0: a9 72                        lda     #$72                    
 f6f2: 9d d9 04                     sta     $04d9,X                 
-f6f5: ad c0 04                     lda     Player_X                
+f6f5: ad c0 04                     lda     Entity_X                
 f6f8: c9 80                        cmp     #$80                    
 f6fa: b0 0d                        bcs     <a href="#L_f709">L_f709</a>                  
 f6fc: a9 00                        lda     #$00                    
@@ -8704,11 +8710,11 @@ f8c0: bd 8e 04     <span id="L_f8c0">L_f8c0</span>          lda     $048e,X
 f8c3: 29 10                        and     #$10                    
 f8c5: f0 78                        beq     <a href="#L_f93f">L_f93f</a>                  
 f8c7: a9 01                        lda     #$01                    
-f8c9: 85 8b                        sta     $8b                     
+f8c9: 85 8b                        sta     PPU_SrcHi               
 f8cb: a9 00                        lda     #$00                    
-f8cd: 85 89                        sta     $89                     
-f8cf: 85 88                        sta     $88                     
-f8d1: 85 8a                        sta     $8a                     
+f8cd: 85 89                        sta     PPU_AddrHi              
+f8cf: 85 88                        sta     PPU_AddrLo              
+f8d1: 85 8a                        sta     PPU_SrcLo               
 f8d3: 20 1a ac                     jsr     <a href="#L_ac1a">L_ac1a</a>                  
 f8d6: ce 17 07                     dec     $0717                   
 f8d9: d0 6f                        bne     <a href="#L_f94a">L_f94a</a>                  
@@ -8840,21 +8846,21 @@ fa09: 0a                           asl     A
 fa0a: 0a                           asl     A                       
 fa0b: a8                           tay                             
 fa0c: b9 df fc                     lda     $fcdf,Y                 
-fa0f: 85 89                        sta     $89                     
+fa0f: 85 89                        sta     PPU_AddrHi              
 fa11: c8                           iny                             
 fa12: b9 df fc                     lda     $fcdf,Y                 
-fa15: 85 88                        sta     $88                     
+fa15: 85 88                        sta     PPU_AddrLo              
 fa17: c8                           iny                             
 fa18: b9 df fc                     lda     $fcdf,Y                 
-fa1b: 85 8b                        sta     $8b                     
+fa1b: 85 8b                        sta     PPU_SrcHi               
 fa1d: c8                           iny                             
 fa1e: b9 df fc                     lda     $fcdf,Y                 
-fa21: 85 8a                        sta     $8a                     
+fa21: 85 8a                        sta     PPU_SrcLo               
 fa23: 20 1a ac                     jsr     <a href="#L_ac1a">L_ac1a</a>                  
 fa26: a9 28                        lda     #$28                    
 fa28: 85 86                        sta     $86                     
 fa2a: a9 00                        lda     #$00                    
-fa2c: 85 87                        sta     $87                     
+fa2c: 85 87                        sta     PPU_WriteCount          
 fa2e: 20 51 c2                     jsr     <a href="#L_c251">L_c251</a>                  
 fa31: 60                           rts                             
 fa32: ad 38 04     <span id="L_fa32">L_fa32</span>          lda     Level                   
@@ -8980,14 +8986,14 @@ fb3b: 29 01                        and     #$01
 fb3d: 0a           <span id="L_fb3d">L_fb3d</span>          asl     A                       
 fb3e: a8                           tay                             
 fb3f: b9 2f fd                     lda     $fd2f,Y                 
-fb42: 85 8a                        sta     $8a                     
+fb42: 85 8a                        sta     PPU_SrcLo               
 fb44: c8                           iny                             
 fb45: b9 2f fd                     lda     $fd2f,Y                 
-fb48: 85 8b                        sta     $8b                     
+fb48: 85 8b                        sta     PPU_SrcHi               
 fb4a: a0 00                        ldy     #$00                    
 fb4c: b1 8a                        lda     ($8a),Y                 
 fb4e: 99 0e 07                     sta     $070e,Y                 
-fb51: 85 87                        sta     $87                     
+fb51: 85 87                        sta     PPU_WriteCount          
 fb53: c8                           iny                             
 fb54: b1 8a                        lda     ($8a),Y                 
 fb56: 99 0e 07                     sta     $070e,Y                 
@@ -8995,7 +9001,7 @@ fb59: c8                           iny
 fb5a: b1 8a        <span id="L_fb5a">L_fb5a</span>          lda     ($8a),Y                 
 fb5c: 99 0e 07                     sta     $070e,Y                 
 fb5f: c8                           iny                             
-fb60: c6 87                        dec     $87                     
+fb60: c6 87                        dec     PPU_WriteCount          
 fb62: d0 f6                        bne     <a href="#L_fb5a">L_fb5a</a>                  
 fb64: a0 00                        ldy     #$00                    
 fb66: 20 e5 b0                     jsr     <a href="#L_b0e5">L_b0e5</a>                  
@@ -9003,14 +9009,14 @@ fb69: 20 bc b0                     jsr     <a href="#L_b0bc">L_b0bc</a>
 fb6c: 20 c9 ad                     jsr     <a href="#L_adc9">L_adc9</a>                  
 fb6f: 85 b0                        sta     $b0                     
 fb71: ad 0e 07                     lda     $070e                   
-fb74: 85 87                        sta     $87                     
+fb74: 85 87                        sta     PPU_WriteCount          
 fb76: a0 02                        ldy     #$02                    
 fb78: b9 0e 07     <span id="L_fb78">L_fb78</span>          lda     $070e,Y                 
 fb7b: 18                           clc                             
 fb7c: 65 b0                        adc     $b0                     
 fb7e: 99 0e 07                     sta     $070e,Y                 
 fb81: c8                           iny                             
-fb82: c6 87                        dec     $87                     
+fb82: c6 87                        dec     PPU_WriteCount          
 fb84: d0 f2                        bne     <a href="#L_fb78">L_fb78</a>                  
 fb86: a9 ff                        lda     #$ff                    
 fb88: 8d 0d 07                     sta     $070d                   
@@ -9092,10 +9098,10 @@ fc3b: 38 e9 30     <span id="D_fc3b">D_fc3b</span>          .byte   $38, $e9, $3
 fc3e: 0a           <span id="L_fc3e">L_fc3e</span>          asl     A                       
 fc3f: a8                           tay                             
 fc40: b9 2f fd                     lda     $fd2f,Y                 
-fc43: 85 8a                        sta     $8a                     
+fc43: 85 8a                        sta     PPU_SrcLo               
 fc45: c8                           iny                             
 fc46: b9 2f fd                     lda     $fd2f,Y                 
-fc49: 85 8b                        sta     $8b                     
+fc49: 85 8b                        sta     PPU_SrcHi               
 fc4b: a0 01                        ldy     #$01                    
 fc4d: b1 8a                        lda     ($8a),Y                 
 fc4f: 99 0e 07                     sta     $070e,Y                 
