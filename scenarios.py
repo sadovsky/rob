@@ -75,6 +75,33 @@ _press_start_steps = [
     (0, 240),
 ]
 
+_INGAME_SETTLE = 180  # extra idle frames after press_start to reach playable state
+
+
+def _ingame(action_steps):
+    """Build a scenario that boots into the game, idles INGAME_SETTLE
+    more frames so the player plane is actually flying (not in the
+    pre-game cutscene), snapshots that baseline, then runs the action
+    steps. Returns (steps, checkpoints) = (steps, [baseline, after])."""
+    settle_step = (0, _INGAME_SETTLE)
+    steps = list(_press_start_steps) + [settle_step] + list(action_steps)
+    baseline_idx = len(_press_start_steps)  # the settle step
+    final_idx = len(steps) - 1
+    return steps, [baseline_idx, final_idx]
+
+
+# Baseline: enter game, snapshot, idle the same total frames the action
+# scenarios use. The diff isolates "what changes during gameplay even
+# without input" — scrolling, enemy AI, RNG. Subtract these addresses
+# from action-scenario diffs to find truly button-driven changes.
+_idle_steps,       _idle_cps       = _ingame([(0, 126)])
+_press_a_steps,    _press_a_cps    = _ingame([(A, 6),     (0, 120)])
+_press_b_steps,    _press_b_cps    = _ingame([(B, 6),     (0, 120)])
+_move_left_steps,  _move_left_cps  = _ingame([(LEFT, 60), (0, 10)])
+_move_right_steps, _move_right_cps = _ingame([(RIGHT, 60),(0, 10)])
+_move_up_steps,    _move_up_cps    = _ingame([(UP, 60),   (0, 10)])
+_move_down_steps,  _move_down_cps  = _ingame([(DOWN, 60), (0, 10)])
+
 SCENARIOS = {
     'boot': Scenario(
         name='boot',
@@ -91,6 +118,57 @@ SCENARIOS = {
                      'Lives_Ones / Rolls / Level are initialized'),
         steps=_press_start_steps,
         checkpoints=[0, len(_press_start_steps) - 1],
+    ),
+    'idle': Scenario(
+        name='idle',
+        description=('enter game, snapshot, idle 126 frames. Baseline '
+                     'gameplay churn (scrolling, enemy AI, RNG) with no '
+                     'controller input. Subtract this set from any '
+                     'button scenario to isolate input-driven writes'),
+        steps=_idle_steps,
+        checkpoints=_idle_cps,
+    ),
+    'press_a': Scenario(
+        name='press_a',
+        description=('enter game, snapshot, hold A for 6 frames + 120 '
+                     'idle. Compare against idle to find what A does'),
+        steps=_press_a_steps,
+        checkpoints=_press_a_cps,
+    ),
+    'press_b': Scenario(
+        name='press_b',
+        description=('enter game, snapshot, hold B for 6 frames + 120 '
+                     'idle. Compare against idle to find what B does'),
+        steps=_press_b_steps,
+        checkpoints=_press_b_cps,
+    ),
+    'move_left': Scenario(
+        name='move_left',
+        description=('enter game, snapshot, hold LEFT for 60 frames + 10 '
+                     'idle. The byte that drops monotonically is the '
+                     "player's logical X position"),
+        steps=_move_left_steps,
+        checkpoints=_move_left_cps,
+    ),
+    'move_right': Scenario(
+        name='move_right',
+        description=('enter game, snapshot, hold RIGHT for 60 frames + '
+                     '10 idle. Cross-reference with move_left: the byte '
+                     'that moved opposite ways in the two scenarios is X'),
+        steps=_move_right_steps,
+        checkpoints=_move_right_cps,
+    ),
+    'move_up': Scenario(
+        name='move_up',
+        description='enter game, snapshot, hold UP for 60 frames + 10 idle',
+        steps=_move_up_steps,
+        checkpoints=_move_up_cps,
+    ),
+    'move_down': Scenario(
+        name='move_down',
+        description='enter game, snapshot, hold DOWN for 60 frames + 10 idle',
+        steps=_move_down_steps,
+        checkpoints=_move_down_cps,
     ),
 }
 
@@ -167,6 +245,13 @@ def report(scenario, changes, correlations, ram_labels):
     return '\n'.join(lines)
 
 
+def _scenario_changes(rom_path, scenario):
+    """Run scenario; return the set of addresses that changed between
+    its first and last checkpoint (sprite OAM excluded)."""
+    snaps = run(rom_path, scenario)
+    return {addr for addr, _, _ in diff(snaps[0], snaps[-1])}, snaps
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('scenario', nargs='?',
@@ -175,6 +260,9 @@ def main():
                     help='path to ROM (default: 1942.nes)')
     ap.add_argument('--labels', default='labels.json',
                     help='path to user label overlay (default: labels.json)')
+    ap.add_argument('--baseline',
+                    help='subtract another scenario\'s changed addresses '
+                         '(e.g. --baseline idle to filter out gameplay churn)')
     ap.add_argument('--list', action='store_true',
                     help='list available scenarios and exit')
     args = ap.parse_args()
@@ -201,6 +289,16 @@ def main():
     ram_labels = dict(disasm.RAM_LABELS)
     ram_labels.update(disasm.load_user_labels(args.labels))
 
+    baseline_addrs = set()
+    if args.baseline:
+        if args.baseline not in SCENARIOS:
+            sys.exit(f'unknown baseline scenario: {args.baseline}')
+        print(f'running baseline scenario: {args.baseline}', file=sys.stderr)
+        baseline_addrs, _ = _scenario_changes(rom_path,
+                                              SCENARIOS[args.baseline])
+        print(f'baseline noise: {len(baseline_addrs)} addresses',
+              file=sys.stderr)
+
     print(f'running scenario: {scenario.name}', file=sys.stderr)
     snapshots = run(rom_path, scenario)
     print(f'captured {len(snapshots)} checkpoint(s)', file=sys.stderr)
@@ -209,9 +307,15 @@ def main():
     # of 2 checkpoints (baseline + final) this is a single diff.
     for i in range(1, len(snapshots)):
         changes = diff(snapshots[i - 1], snapshots[i])
+        if baseline_addrs:
+            changes = [(a, x, y) for (a, x, y) in changes
+                       if a not in baseline_addrs]
         correlations = correlate(dis, changes)
         print()
         print(f'=== checkpoint {i-1} -> {i} ===')
+        if args.baseline:
+            print(f'(filtered: addresses also touched by '
+                  f'{args.baseline} are hidden)')
         print(report(scenario, changes, correlations, ram_labels))
     return 0
 

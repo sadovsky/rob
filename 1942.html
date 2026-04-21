@@ -82,6 +82,10 @@ JOY1         = $4016
 JOY2         = $4017
 
 ; ----- 1942 RAM map (Data Crystal) -----
+A_Hold_Counter = $00db  ; frames the A button has been held; rolls over at 10 and triggers L_d3b9 (roll attempt)
+A_Button_State = $0388  ; bit $10 = A held this frame (debounce flag set in L_d2aa)
+Player_OAM_Y = $03af  ; shadow-OAM mirror of Player_Y
+Player_OAM_X = $03b2  ; shadow-OAM mirror of Player_X (same value, written via DMA)
 Score_D5     = $0427  ; score digit (100,000s)
 Score_D4     = $0428  ; score digit (10,000s)
 Score_D3     = $0429  ; score digit (1,000s)
@@ -92,6 +96,9 @@ Lives_Tens   = $0431  ; lives tens digit
 Lives_Ones   = $0432  ; lives ones digit (starts at 02)
 Rolls        = $0436  ; special rolls remaining (starts at 03)
 Level        = $0438  ; current stage (00 = stage 1)
+Player_Y     = $04a7  ; vertical position; UP held drives toward $56 (top), DOWN toward $c1 (bottom)
+Player_X     = $04c0  ; horizontal position; LEFT held drives toward $1e (left edge), RIGHT toward $e6 (right edge)
+Buttons_Pressed = $0785  ; current-frame joypad state; A-press handler (L_d2aa) tests bit $40, the input handlers at L_d472 / L_dc54 also consume this
 
 8000: a9 1e        <span id="L_8000">L_8000</span>          lda     #$1e                    
 8002: 8d 8e 03                     sta     $038e                   
@@ -2515,13 +2522,13 @@ aa5d: 18           <span id="L_aa5d">L_aa5d</span>          clc
 aa5e: 60                           rts                             
 aa5f: 38 60        <span id="D_aa5f">D_aa5f</span>          .byte   $38, $60
 aa61: 8c 1d 07     <span id="L_aa61">L_aa61</span>          sty     $071d                   
-aa64: bd c0 04                     lda     $04c0,X                 
+aa64: bd c0 04                     lda     Player_X,X              
 aa67: 8d 91 03                     sta     $0391                   
-aa6a: bd a7 04                     lda     $04a7,X                 
+aa6a: bd a7 04                     lda     Player_Y,X              
 aa6d: 8d 94 03                     sta     $0394                   
-aa70: b9 c0 04                     lda     $04c0,Y                 
+aa70: b9 c0 04                     lda     Player_X,Y              
 aa73: 8d 97 03                     sta     $0397                   
-aa76: b9 a7 04                     lda     $04a7,Y                 
+aa76: b9 a7 04                     lda     Player_Y,Y              
 aa79: 8d 9a 03                     sta     $039a                   
 aa7c: bd d9 04                     lda     $04d9,X                 
 aa7f: 20 2c ab                     jsr     <a href="#L_ab2c">L_ab2c</a>                  
@@ -3232,9 +3239,9 @@ b1e8: 38                           sec
 b1e9: e9 10                        sbc     #$10                    
 b1eb: 8d 9a 03                     sta     $039a                   
 b1ee: ad 9a 03     <span id="L_b1ee">L_b1ee</span>          lda     $039a                   
-b1f1: 9d a7 04                     sta     $04a7,X                 
+b1f1: 9d a7 04                     sta     Player_Y,X              
 b1f4: ad 97 03                     lda     $0397                   
-b1f7: 9d c0 04                     sta     $04c0,X                 
+b1f7: 9d c0 04                     sta     Player_X,X              
 b1fa: 60                           rts                             
 b1fb: 00 00 00 00 ..<span id="D_b1fb">D_b1fb</span>          .byte   $00, $00, $00, $00, $00, $00, $00, $00
 b203: 00 00 00 00 ..                .byte   $00, $00, $00, $00, $00, $00, $00, $00
@@ -3584,9 +3591,9 @@ b6a5: a9 ff                        lda     #$ff
 b6a7: 8d 80 03                     sta     $0380                   
 b6aa: a0 0b                        ldy     #$0b                    
 b6ac: a9 48                        lda     #$48                    
-b6ae: 99 c0 04                     sta     $04c0,Y                 
+b6ae: 99 c0 04                     sta     Player_X,Y              
 b6b1: a9 7f                        lda     #$7f                    
-b6b3: 99 a7 04                     sta     $04a7,Y                 
+b6b3: 99 a7 04                     sta     Player_Y,Y              
 b6b6: a9 20                        lda     #$20                    
 b6b8: 99 d9 04                     sta     $04d9,Y                 
 b6bb: a9 1a                        lda     #$1a                    
@@ -3628,7 +3635,7 @@ b72c: 0a 07 4c d3 ..                .byte   $0a, $07, $4c, $d3, $b6
 b731: a5 98        <span id="L_b731">L_b731</span>          lda     $98                     
 b733: 29 10                        and     #$10                    
 b735: f0 08                        beq     <a href="#L_b73f">L_b73f</a>                  
-b737: ad 88 03                     lda     $0388                   
+b737: ad 88 03                     lda     A_Button_State          
 b73a: d0 08                        bne     <a href="#L_b744">L_b744</a>                  
 b73c: 4c 5e b7                     jmp     <a href="#L_b75e">L_b75e</a>                  
 b73f: a9 00 8d 88 ..<span id="D_b73f">D_b73f</span>          .byte   $a9, $00, $8d, $88, $03
@@ -3818,7 +3825,7 @@ b94f: 99 00 02     <span id="L_b94f">L_b94f</span>          sta     $0200,Y
 b952: 88                           dey                             
 b953: d0 fa                        bne     <a href="#L_b94f">L_b94f</a>                  
 b955: a0 47                        ldy     #$47                    
-b957: 99 af 03     <span id="L_b957">L_b957</span>          sta     $03af,Y                 
+b957: 99 af 03     <span id="L_b957">L_b957</span>          sta     Player_OAM_Y,Y          
 b95a: 88                           dey                             
 b95b: d0 fa                        bne     <a href="#L_b957">L_b957</a>                  
 b95d: a5 8c                        lda     $8c                     
@@ -4873,8 +4880,8 @@ c32f: 9d 8e 04                     sta     $048e,X
 c332: 9d d9 04                     sta     $04d9,X                 
 c335: 9d 0b 05                     sta     $050b,X                 
 c338: 9d ba 05                     sta     $05ba,X                 
-c33b: 9d c0 04                     sta     $04c0,X                 
-c33e: 9d a7 04                     sta     $04a7,X                 
+c33b: 9d c0 04                     sta     Player_X,X              
+c33e: 9d a7 04                     sta     Player_Y,X              
 c341: 9d 6f 05                     sta     $056f,X                 
 c344: 9d 88 05                     sta     $0588,X                 
 c347: 9d a1 05                     sta     $05a1,X                 
@@ -4913,17 +4920,17 @@ c3ca: a2 00        <span id="L_c3ca">L_c3ca</span>          ldx     #$00
 c3cc: a0 00                        ldy     #$00                    
 c3ce: bd 8e 04     <span id="L_c3ce">L_c3ce</span>          lda     $048e,X                 
 c3d1: 10 20                        bpl     <a href="#L_c3f3">L_c3f3</a>                  
-c3d3: bd a7 04                     lda     $04a7,X                 
-c3d6: 99 af 03                     sta     $03af,Y                 
+c3d3: bd a7 04                     lda     Player_Y,X              
+c3d6: 99 af 03                     sta     Player_OAM_Y,Y          
 c3d9: c8                           iny                             
 c3da: bd d9 04                     lda     $04d9,X                 
-c3dd: 99 af 03                     sta     $03af,Y                 
+c3dd: 99 af 03                     sta     Player_OAM_Y,Y          
 c3e0: c8                           iny                             
 c3e1: bd f2 04                     lda     $04f2,X                 
-c3e4: 99 af 03                     sta     $03af,Y                 
+c3e4: 99 af 03                     sta     Player_OAM_Y,Y          
 c3e7: c8                           iny                             
-c3e8: bd c0 04                     lda     $04c0,X                 
-c3eb: 99 af 03                     sta     $03af,Y                 
+c3e8: bd c0 04                     lda     Player_X,X              
+c3eb: 99 af 03                     sta     Player_OAM_Y,Y          
 c3ee: c8                           iny                             
 c3ef: c0 74                        cpy     #$74                    
 c3f1: b0 05                        bcs     <a href="#L_c3f8">L_c3f8</a>                  
@@ -4933,7 +4940,7 @@ c3f6: d0 d6                        bne     <a href="#L_c3ce">L_c3ce</a>
 c3f8: a9 04        <span id="L_c3f8">L_c3f8</span>          lda     #$04                    
 c3fa: 85 87                        sta     $87                     
 c3fc: a9 ff        <span id="L_c3fc">L_c3fc</span>          lda     #$ff                    
-c3fe: 99 af 03                     sta     $03af,Y                 
+c3fe: 99 af 03                     sta     Player_OAM_Y,Y          
 c401: c8                           iny                             
 c402: c6 87                        dec     $87                     
 c404: d0 f6                        bne     <a href="#L_c3fc">L_c3fc</a>                  
@@ -5540,7 +5547,7 @@ d11b: 20 9a d1     <span id="L_d11b">L_d11b</span>          jsr     <a href="#L_
 d11e: c9 14                        cmp     #$14                    
 d120: 90 f9                        bcc     <a href="#L_d11b">L_d11b</a>                  
 d122: 20 9a d1     <span id="L_d122">L_d122</span>          jsr     <a href="#L_d19a">L_d19a</a>                  
-d125: bd a7 04                     lda     $04a7,X                 
+d125: bd a7 04                     lda     Player_Y,X              
 d128: c9 c0                        cmp     #$c0                    
 d12a: 90 f6                        bcc     <a href="#L_d122">L_d122</a>                  
 d12c: ee d9 04                     inc     $04d9                   
@@ -5662,22 +5669,22 @@ d29d: 4c a9 d2                     jmp     <a href="#L_d2a9">L_d2a9</a>
 d2a0: 9d 88 05 ad ..<span id="D_d2a0">D_d2a0</span>          .byte   $9d, $88, $05, $ad, $6f, $05, $9d, $6f
 d2a8: 05                           .byte   $05
 d2a9: 60           <span id="D_d2a9">D_d2a9</span>          .byte   $60
-d2aa: ad 85 07     <span id="L_d2aa">L_d2aa</span>          lda     $0785                   
+d2aa: ad 85 07     <span id="L_d2aa">L_d2aa</span>          lda     Buttons_Pressed         
 d2ad: 29 40                        and     #$40                    
 d2af: f0 24                        beq     <a href="#L_d2d5">L_d2d5</a>                  
-d2b1: ad 88 03                     lda     $0388                   
+d2b1: ad 88 03                     lda     A_Button_State          
 d2b4: 29 10                        and     #$10                    
 d2b6: d0 0b                        bne     <a href="#L_d2c3">L_d2c3</a>                  
-d2b8: ad 88 03                     lda     $0388                   
+d2b8: ad 88 03                     lda     A_Button_State          
 d2bb: 09 10                        ora     #$10                    
-d2bd: 8d 88 03                     sta     $0388                   
+d2bd: 8d 88 03                     sta     A_Button_State          
 d2c0: 4c cb d2                     jmp     <a href="#L_d2cb">L_d2cb</a>                  
-d2c3: e6 db        <span id="L_d2c3">L_d2c3</span>          inc     $db                     
-d2c5: a5 db                        lda     $db                     
+d2c3: e6 db        <span id="L_d2c3">L_d2c3</span>          inc     A_Hold_Counter          
+d2c5: a5 db                        lda     A_Hold_Counter          
 d2c7: c9 0a                        cmp     #$0a                    
 d2c9: 90 12                        bcc     <a href="#L_d2dd">L_d2dd</a>                  
 d2cb: a9 00        <span id="L_d2cb">L_d2cb</span>          lda     #$00                    
-d2cd: 85 db                        sta     $db                     
+d2cd: 85 db                        sta     A_Hold_Counter          
 d2cf: 20 b9 d3                     jsr     <a href="#L_d3b9">L_d3b9</a>                  
 d2d2: 4c dd d2                     jmp     <a href="#L_d2dd">L_d2dd</a>                  
 d2d5: ad 88 03 29 ..<span id="D_d2d5">D_d2d5</span>          .byte   $ad, $88, $03, $29, $ef, $8d, $88, $03
@@ -5827,7 +5834,7 @@ d4ca: 04 c9 30 90 ..                .byte   $04, $c9, $30, $90, $03, $20, $89, $
 d4d2: 4c 92 d5                     .byte   $4c, $92, $d5
 d4d5: a9 02        <span id="L_d4d5">L_d4d5</span>          lda     #$02                    
 d4d7: 20 93 d5                     jsr     <a href="#L_d593">L_d593</a>                  
-d4da: bd c0 04                     lda     $04c0,X                 
+d4da: bd c0 04                     lda     Player_X,X              
 d4dd: c9 e4                        cmp     #$e4                    
 d4df: 90 03                        bcc     <a href="#L_d4e4">L_d4e4</a>                  
 d4e1: 4c ee d4                     jmp     <a href="#L_d4ee">L_d4ee</a>                  
@@ -5838,14 +5845,14 @@ d4f6: 92 d5 a9 00 ..                .byte   $92, $d5, $a9, $00, $20, $93, $d5, $
 d4fe: c8 d4                        .byte   $c8, $d4
 d500: a9 04        <span id="L_d500">L_d500</span>          lda     #$04                    
 d502: 20 93 d5                     jsr     <a href="#L_d593">L_d593</a>                  
-d505: bd c0 04                     lda     $04c0,X                 
+d505: bd c0 04                     lda     Player_X,X              
 d508: c9 e4                        cmp     #$e4                    
 d50a: 90 03                        bcc     <a href="#L_d50f">L_d50f</a>                  
 d50c: 4c 92 d5                     jmp     <a href="#L_d592">L_d592</a>                  
 d50f: 4c 89 d5     <span id="D_d50f">D_d50f</span>          .byte   $4c, $89, $d5
 d512: a9 0c        <span id="L_d512">L_d512</span>          lda     #$0c                    
 d514: 20 93 d5                     jsr     <a href="#L_d593">L_d593</a>                  
-d517: bd c0 04                     lda     $04c0,X                 
+d517: bd c0 04                     lda     Player_X,X              
 d51a: c9 1c                        cmp     #$1c                    
 d51c: 90 03                        bcc     <a href="#L_d521">L_d521</a>                  
 d51e: 4c 24 d5                     jmp     <a href="#L_d524">L_d524</a>                  
@@ -5853,10 +5860,10 @@ d521: 4c 92 d5     <span id="D_d521">D_d521</span>          .byte   $4c, $92, $d
 d524: 4c 89 d5     <span id="D_d524">D_d524</span>          .byte   $4c, $89, $d5
 d527: a9 0a        <span id="L_d527">L_d527</span>          lda     #$0a                    
 d529: 20 93 d5                     jsr     <a href="#L_d593">L_d593</a>                  
-d52c: bd a7 04                     lda     $04a7,X                 
+d52c: bd a7 04                     lda     Player_Y,X              
 d52f: c9 c0                        cmp     #$c0                    
 d531: 90 0d                        bcc     <a href="#L_d540">L_d540</a>                  
-d533: bd c0 04                     lda     $04c0,X                 
+d533: bd c0 04                     lda     Player_X,X              
 d536: c9 1c                        cmp     #$1c                    
 d538: 90 03                        bcc     <a href="#L_d53d">L_d53d</a>                  
 d53a: 4c 12 d5                     jmp     <a href="#L_d512">L_d512</a>                  
@@ -5866,10 +5873,10 @@ d548: 89 d5 bd a7 ..                .byte   $89, $d5, $bd, $a7, $04, $c9, $c0, $
 d550: 41 4c 89 d5                  .byte   $41, $4c, $89, $d5
 d554: a9 06        <span id="L_d554">L_d554</span>          lda     #$06                    
 d556: 20 93 d5                     jsr     <a href="#L_d593">L_d593</a>                  
-d559: bd a7 04                     lda     $04a7,X                 
+d559: bd a7 04                     lda     Player_Y,X              
 d55c: c9 c0                        cmp     #$c0                    
 d55e: 90 0d                        bcc     <a href="#L_d56d">L_d56d</a>                  
-d560: bd c0 04                     lda     $04c0,X                 
+d560: bd c0 04                     lda     Player_X,X              
 d563: c9 e4                        cmp     #$e4                    
 d565: b0 03                        bcs     <a href="#L_d56a">L_d56a</a>                  
 d567: 4c 00 d5                     jmp     <a href="#L_d500">L_d500</a>                  
@@ -6607,7 +6614,7 @@ dc49: ac 84 07                     ldy     $0784
 dc4c: b9 6f e2                     lda     $e26f,Y                 
 dc4f: 4c 8e de                     jmp     <a href="#L_de8e">L_de8e</a>                  
 dc52: a5 98        <span id="L_dc52">L_dc52</span>          lda     $98                     
-dc54: cd 85 07                     cmp     $0785                   
+dc54: cd 85 07                     cmp     Buttons_Pressed         
 dc57: f0 16                        beq     <a href="#L_dc6f">L_dc6f</a>                  
 dc59: ac 84 07                     ldy     $0784                   
 dc5c: c8                           iny                             
@@ -7631,18 +7638,18 @@ ecbf: f0 03                        beq     <a href="#L_ecc4">L_ecc4</a>
 ecc1: 4c 5f ee                     jmp     <a href="#L_ee5f">L_ee5f</a>                  
 ecc4: 4c 36 ee     <span id="D_ecc4">D_ecc4</span>          .byte   $4c, $36, $ee
 ecc7: a9 60        <span id="L_ecc7">L_ecc7</span>          lda     #$60                    
-ecc9: 9d c0 04                     sta     $04c0,X                 
+ecc9: 9d c0 04                     sta     Player_X,X              
 eccc: a9 88                        lda     #$88                    
-ecce: 9d a7 04                     sta     $04a7,X                 
+ecce: 9d a7 04                     sta     Player_Y,X              
 ecd1: ad 86 03                     lda     $0386                   
 ecd4: f0 06                        beq     <a href="#L_ecdc">L_ecdc</a>                  
 ecd6: fe d9 04                     inc     $04d9,X                 
 ecd9: fe d9 04                     inc     $04d9,X                 
 ecdc: 4c 57 ed     <span id="L_ecdc">L_ecdc</span>          jmp     <a href="#L_ed57">L_ed57</a>                  
 ecdf: a9 58        <span id="L_ecdf">L_ecdf</span>          lda     #$58                    
-ece1: 9d c0 04                     sta     $04c0,X                 
+ece1: 9d c0 04                     sta     Player_X,X              
 ece4: a9 a8                        lda     #$a8                    
-ece6: 9d a7 04                     sta     $04a7,X                 
+ece6: 9d a7 04                     sta     Player_Y,X              
 ece9: a9 04                        lda     #$04                    
 eceb: 9d f2 04                     sta     $04f2,X                 
 ecee: 4c 5c ed                     jmp     <a href="#L_ed5c">L_ed5c</a>                  
@@ -7658,9 +7665,9 @@ ed03: f0 03                        beq     <a href="#L_ed08">L_ed08</a>
 ed05: 4c 5f ee                     jmp     <a href="#L_ee5f">L_ee5f</a>                  
 ed08: 4c 36 ee     <span id="D_ed08">D_ed08</span>          .byte   $4c, $36, $ee
 ed0b: a9 18        <span id="L_ed0b">L_ed0b</span>          lda     #$18                    
-ed0d: 9d c0 04                     sta     $04c0,X                 
+ed0d: 9d c0 04                     sta     Player_X,X              
 ed10: a9 d0                        lda     #$d0                    
-ed12: 9d a7 04                     sta     $04a7,X                 
+ed12: 9d a7 04                     sta     Player_Y,X              
 ed15: a9 03                        lda     #$03                    
 ed17: 9d f2 04                     sta     $04f2,X                 
 ed1a: 4c 5c ed                     jmp     <a href="#L_ed5c">L_ed5c</a>                  
@@ -7747,9 +7754,9 @@ ee08: f0 06                        beq     <a href="#L_ee10">L_ee10</a>
 ee0a: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 ee0d: 4c 9d ed                     jmp     <a href="#L_ed9d">L_ed9d</a>                  
 ee10: a9 78        <span id="L_ee10">L_ee10</span>          lda     #$78                    
-ee12: 9d c0 04                     sta     $04c0,X                 
+ee12: 9d c0 04                     sta     Player_X,X              
 ee15: a9 78                        lda     #$78                    
-ee17: 9d a7 04                     sta     $04a7,X                 
+ee17: 9d a7 04                     sta     Player_Y,X              
 ee1a: a9 88                        lda     #$88                    
 ee1c: 9d 8e 04                     sta     $048e,X                 
 ee1f: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
@@ -8103,7 +8110,7 @@ f272: 09 04 9d 8e ..                .byte   $09, $04, $9d, $8e, $04
 f277: bd d3 05     <span id="L_f277">L_f277</span>          lda     $05d3,X                 
 f27a: c9 07                        cmp     #$07                    
 f27c: d0 08                        bne     <a href="#L_f286">L_f286</a>                  
-f27e: bd a7 04                     lda     $04a7,X                 
+f27e: bd a7 04                     lda     Player_Y,X              
 f281: c9 78                        cmp     #$78                    
 f283: 90 01                        bcc     <a href="#L_f286">L_f286</a>                  
 f285: 60                           rts                             
@@ -8285,16 +8292,16 @@ f461: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>
 f464: 4c 57 f4                     jmp     <a href="#L_f457">L_f457</a>                  
 f467: 20 32 fa     <span id="L_f467">L_f467</span>          jsr     <a href="#L_fa32">L_fa32</a>                  
 f46a: a0 00                        ldy     #$00                    
-f46c: b9 a7 04                     lda     $04a7,Y                 
+f46c: b9 a7 04                     lda     Player_Y,Y              
 f46f: 38                           sec                             
 f470: e9 40                        sbc     #$40                    
 f472: 90 05                        bcc     <a href="#L_f479">L_f479</a>                  
-f474: dd a7 04                     cmp     $04a7,X                 
+f474: dd a7 04                     cmp     Player_Y,X              
 f477: b0 0b                        bcs     <a href="#L_f484">L_f484</a>                  
-f479: b9 a7 04     <span id="L_f479">L_f479</span>          lda     $04a7,Y                 
+f479: b9 a7 04     <span id="L_f479">L_f479</span>          lda     Player_Y,Y              
 f47c: 38                           sec                             
 f47d: e9 20                        sbc     #$20                    
-f47f: dd a7 04                     cmp     $04a7,X                 
+f47f: dd a7 04                     cmp     Player_Y,X              
 f482: b0 13                        bcs     <a href="#L_f497">L_f497</a>                  
 f484: 20 fc f7     <span id="L_f484">L_f484</span>          jsr     <a href="#L_f7fc">L_f7fc</a>                  
 f487: 90 03                        bcc     <a href="#L_f48c">L_f48c</a>                  
@@ -8303,17 +8310,17 @@ f48c: 20 75 c2 20 ..<span id="D_f48c">D_f48c</span>          .byte   $20, $75, $
 f494: 4c 3c f8                     .byte   $4c, $3c, $f8
 f497: 20 75 c2     <span id="L_f497">L_f497</span>          jsr     <a href="#L_c275">L_c275</a>                  
 f49a: a0 00                        ldy     #$00                    
-f49c: b9 c0 04                     lda     $04c0,Y                 
+f49c: b9 c0 04                     lda     Player_X,Y              
 f49f: 38                           sec                             
 f4a0: e9 50                        sbc     #$50                    
 f4a2: 90 05                        bcc     <a href="#L_f4a9">L_f4a9</a>                  
-f4a4: dd c0 04                     cmp     $04c0,X                 
+f4a4: dd c0 04                     cmp     Player_X,X              
 f4a7: b0 ae                        bcs     <a href="#L_f457">L_f457</a>                  
-f4a9: b9 c0 04     <span id="L_f4a9">L_f4a9</span>          lda     $04c0,Y                 
+f4a9: b9 c0 04     <span id="L_f4a9">L_f4a9</span>          lda     Player_X,Y              
 f4ac: 18                           clc                             
 f4ad: 69 50                        adc     #$50                    
 f4af: b0 08                        bcs     <a href="#L_f4b9">L_f4b9</a>                  
-f4b1: dd c0 04                     cmp     $04c0,X                 
+f4b1: dd c0 04                     cmp     Player_X,X              
 f4b4: b0 03                        bcs     <a href="#L_f4b9">L_f4b9</a>                  
 f4b6: 4c 57 f4                     jmp     <a href="#L_f457">L_f457</a>                  
 f4b9: 60           <span id="D_f4b9">D_f4b9</span>          .byte   $60
@@ -8517,7 +8524,7 @@ f6eb: 09 02                        ora     #$02
 f6ed: 9d 8e 04                     sta     $048e,X                 
 f6f0: a9 72                        lda     #$72                    
 f6f2: 9d d9 04                     sta     $04d9,X                 
-f6f5: ad c0 04                     lda     $04c0                   
+f6f5: ad c0 04                     lda     Player_X                
 f6f8: c9 80                        cmp     #$80                    
 f6fa: b0 0d                        bcs     <a href="#L_f709">L_f709</a>                  
 f6fc: a9 00                        lda     #$00                    

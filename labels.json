@@ -1,1 +1,9 @@
-{}
+{
+  "$04c0": ["Player_X",       "horizontal position; LEFT held drives toward $1e (left edge), RIGHT toward $e6 (right edge)"],
+  "$04a7": ["Player_Y",       "vertical position; UP held drives toward $56 (top), DOWN toward $c1 (bottom)"],
+  "$03b2": ["Player_OAM_X",   "shadow-OAM mirror of Player_X (same value, written via DMA)"],
+  "$03af": ["Player_OAM_Y",   "shadow-OAM mirror of Player_Y"],
+  "$00db": ["A_Hold_Counter", "frames the A button has been held; rolls over at 10 and triggers L_d3b9 (roll attempt)"],
+  "$0388": ["A_Button_State", "bit $10 = A held this frame (debounce flag set in L_d2aa)"],
+  "$0785": ["Buttons_Pressed","current-frame joypad state; A-press handler (L_d2aa) tests bit $40, the input handlers at L_d472 / L_dc54 also consume this"]
+}
