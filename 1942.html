@@ -95,11 +95,11 @@ Joypad1_State = $0098  ; P1 controller raw state this frame (8 bits) populated b
 Joypad1_NewPress = $0099  ; P1 controller newly-pressed bits this frame (rising edges of Joypad1_State)
 Joypad2_State = $009a  ; P2 controller raw state this frame (populated by Joypad_PollOne for X=1)
 Joypad2_NewPress = $009b  ; P2 controller newly-pressed bits this frame
-A_Hold_Counter = $00db  ; frames the A button has been held; rolls over at 10 and triggers L_d3b9 (roll attempt)
+Fire_HoldCounter = $00db  ; frames the B (Fire) button has been held; Fire_Handler (L_d2aa) increments while held and rolls over at 10 to call Spawn_Bullet — that's the auto-fire repeat rate (~10 frames between bullets when B is held)
 P2_Active    = $0384  ; companion to P1_Active; tested by P1_LifeLost at $b80a to decide whether to swap players or game-over
 P1_Active    = $0385  ; $ff while P1 is the active player; cleared on game-over. Set at $b7da during NewGame_Init_P1
 Active_Player_Index = $0386  ; 0 = P1 currently playing, 1 = P2 currently playing. NewGame_Init_P1 inits to 0; SwapTo_P2 sets to 1, SwapTo_P1 / Restore_P1_NoSave set to 0
-A_Button_State = $0388  ; bit $10 = A held this frame (debounce flag set in L_d2aa)
+Fire_DebounceFlag = $0388  ; bit $10 = B (Fire) held last frame; set by Fire_Handler (L_d2aa) to detect the rising edge of B
 PPU_QueueReady = $03ae  ; nonzero -> NMI_Handler walks the PPU_UpdateQueue. NMI clears it on completion ($c07e); set by the queue builder at $81e2
 Player_OAM_Y = $03af  ; shadow-OAM mirror of Entity_Y[0] (player)
 Player_OAM_X = $03b2  ; shadow-OAM mirror of Entity_X[0] (player), written via DMA
@@ -112,13 +112,16 @@ Score_D0     = $042c  ; score digit (1s)
 Lives_Tens   = $0431  ; lives tens digit
 Lives_Ones   = $0432  ; lives ones digit (starts at 02)
 Rolls        = $0436  ; special rolls remaining (starts at 03)
+Respawn_Count = $0437  ; INC at L_e1e0 each time the player respawns; cleared to 0 by NewGame_Init paths and by debe (post-game-over re-init). Confirmed live: across a 5-death autofire run this byte went 0,0,1,1,2,3,3,4,5 (one increment per death). Tested at >10 sites as a 'have we died yet?' flag (e.g. d09a, d68b — those branches just want nonzero, not the count)
 Level        = $0438  ; current stage (00 = stage 1)
 P1_SavedState = $044a  ; 33-byte ($21) save buffer for P1 state while P2 is playing. SwapTo_P2 saves the active block here; SwapTo_P1 / Restore_P1_NoSave load it back into ActivePlayer_State
 P2_SavedState = $046b  ; 33-byte ($21) save buffer for P2 state while P1 is playing. SwapTo_P1 saves the active block here; SwapTo_P2 loads it back into ActivePlayer_State
 Entity_Active = $048e  ; entity SOA attribute 0 (active flag): bit $80 = slot in use, tested by L_f7cd. The whole entity table is 25 attributes x 25 slots, $19-byte stride per attribute, running $048e..$0682. Slot 0 is the player; Reset_Rolls clears slots 0-11 (player + co-active aux entities)
 Entity_Y     = $04a7  ; entity SOA attribute 1 (vertical position); 25 slots at +0..+24 within the table. Slot 0 is the player: UP drives toward $56 (top), DOWN toward $c1 (bottom)
 Entity_X     = $04c0  ; entity SOA attribute 2 (horizontal position); 25 slots. Slot 0 is the player: LEFT drives toward $1e (left edge), RIGHT toward $e6 (right edge). L_aa61 reads Entity_X,X / Entity_X,Y for collision checks between two arbitrary slots
-Buttons_Pressed = $0785  ; current-frame joypad state; A-press handler (L_d2aa) tests bit $40, the input handlers at L_d472 / L_dc54 also consume this
+Bullet_SpawnPending = $0719  ; $01 written by Spawn_Bullet alongside Bullet_TargetSlot — likely a one-shot 'spawn requested' flag consumed by the entity update pass
+Bullet_TargetSlot = $071a  ; $0b written by Spawn_Bullet — the entity slot index ($0b = 11) where the new bullet is being installed. Read at L_d3c3 to look up Entity_Active,Y
+Buttons_Held = $0785  ; current-frame joypad state stored MSB-first (A=$80, B=$40, SEL=$20, START=$10, UP=$08, DOWN=$04, LEFT=$02, RIGHT=$01). NOTE: bit ordering is the OPPOSITE of $98/$9a (which are LSB-first from Joypad_PollOne) — this byte is filled elsewhere in the input stack. Fire_Handler tests bit $40 (B); the input handlers at L_d472 / L_dc54 consume this same byte
 PPU_UpdateQueue = $078f  ; variable-length PPU update queue consumed by NMI_Handler. Each entry: addr_hi, addr_lo, count, count×data_byte; queue terminates when count == 0
 TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from menu choice, gates 2P paths in Continue_Init_P1 / NewGame_Init_P2
 WarmBoot_Magic1 = $07bd  ; first half of the warm-boot magic word; Reset_Handler skips RAM-clear when $07bd:$07be == $55:$aa
@@ -3659,7 +3662,7 @@ b72c: 0a 07 4c d3 ..                .byte   $0a, $07, $4c, $d3, $b6
 b731: a5 98        <span id="L_b731">L_b731</span>          lda     Joypad1_State           
 b733: 29 10                        and     #$10                    
 b735: f0 08                        beq     <a href="#L_b73f">L_b73f</a>                  
-b737: ad 88 03                     lda     A_Button_State          
+b737: ad 88 03                     lda     Fire_DebounceFlag       
 b73a: d0 08                        bne     <a href="#L_b744">L_b744</a>                  
 b73c: 4c 5e b7                     jmp     <a href="#L_b75e">L_b75e</a>                  
 b73f: a9 00 8d 88 ..<span id="D_b73f">D_b73f</span>          .byte   $a9, $00, $8d, $88, $03
@@ -3714,7 +3717,7 @@ b7ea: 85 c9                        sta     $c9
 b7ec: 8d 2e 04                     sta     $042e                   
 b7ef: 8d 8d 03                     sta     $038d                   
 b7f2: a0 11                        ldy     #$11                    
-b7f4: 99 37 04     <span id="L_b7f4">L_b7f4</span>          sta     $0437,Y                 
+b7f4: 99 37 04     <span id="L_b7f4">L_b7f4</span>          sta     Respawn_Count,Y         
 b7f7: 88                           dey                             
 b7f8: 10 fa                        bpl     <a href="#L_b7f4">L_b7f4</a>                  
 b7fa: 20 22 b9                     jsr     <a href="#L_b922">L_b922</a>                  
@@ -3756,7 +3759,7 @@ b85a: 8d 32 04                     sta     Lives_Ones
 b85d: a9 00                        lda     #$00                    
 b85f: 8d 2e 04                     sta     $042e                   
 b862: a0 11                        ldy     #$11                    
-b864: 99 37 04     <span id="L_b864">L_b864</span>          sta     $0437,Y                 
+b864: 99 37 04     <span id="L_b864">L_b864</span>          sta     Respawn_Count,Y         
 b867: 88                           dey                             
 b868: 10 fa                        bpl     <a href="#L_b864">L_b864</a>                  
 b86a: ad bc 07                     lda     TwoPlayer_Mode          
@@ -3767,7 +3770,7 @@ b874: a9 00                        lda     #$00
 b876: 8d a0 03                     sta     $03a0                   
 b879: a9 00        <span id="L_b879">L_b879</span>          lda     #$00                    
 b87b: a0 11                        ldy     #$11                    
-b87d: 99 37 04     <span id="L_b87d">L_b87d</span>          sta     $0437,Y                 
+b87d: 99 37 04     <span id="L_b87d">L_b87d</span>          sta     Respawn_Count,Y         
 b880: 88                           dey                             
 b881: 10 fa                        bpl     <a href="#L_b87d">L_b87d</a>                  
 b883: 20 a1 d7                     jsr     <a href="#Death_Sequence">Death_Sequence</a>          
@@ -4371,7 +4374,7 @@ beae: 85 6b                        sta     $6b
 beb0: a9 07                        lda     #$07                    
 beb2: 85 6c                        sta     $6c                     
 beb4: a9 00                        lda     #$00                    
-beb6: 8d 37 04                     sta     $0437                   
+beb6: 8d 37 04                     sta     Respawn_Count           
 beb9: a9 00                        lda     #$00                    
 bebb: 8d 23 07                     sta     $0723                   
 bebe: ad 86 03                     lda     Active_Player_Index     
@@ -5519,7 +5522,7 @@ d090: a9 03                        lda     #$03
 d092: 8d f2 04                     sta     $04f2                   
 d095: ad bc 07                     lda     TwoPlayer_Mode          
 d098: f0 0b                        beq     <a href="#L_d0a5">L_d0a5</a>                  
-d09a: ad 37 04                     lda     $0437                   
+d09a: ad 37 04                     lda     Respawn_Count           
 d09d: d0 03                        bne     <a href="#L_d0a2">L_d0a2</a>                  
 d09f: 4c 5b d1                     jmp     <a href="#L_d15b">L_d15b</a>                  
 d0a2: 4c 65 d1     <span id="D_d0a2">D_d0a2</span>          .byte   $4c, $65, $d1
@@ -5656,9 +5659,9 @@ d22c: 88 03 29 01 ..                .byte   $88, $03, $29, $01, $d0, $16, $ad, $
 d234: 03 09 01 8d ..                .byte   $03, $09, $01, $8d, $88, $03, $20, $03
 d23c: d3 4c 48 d2 ..                .byte   $d3, $4c, $48, $d2, $ad, $88, $03, $29
 d244: fe 8d 88 03                  .byte   $fe, $8d, $88, $03
-d248: 20 aa d2     <span id="L_d248">L_d248</span>          jsr     <a href="#L_d2aa">L_d2aa</a>                  
+d248: 20 aa d2     <span id="L_d248">L_d248</span>          jsr     <a href="#Fire_Handler">Fire_Handler</a>            
 d24b: 20 72 d4                     jsr     <a href="#L_d472">L_d472</a>                  
-d24e: ad 37 04                     lda     $0437                   
+d24e: ad 37 04                     lda     Respawn_Count           
 d251: c9 ff                        cmp     #$ff                    
 d253: d0 03                        bne     <a href="#L_d258">L_d258</a>                  
 d255: 4c 3e d6                     jmp     <a href="#L_d63e">L_d63e</a>                  
@@ -5693,23 +5696,23 @@ d29d: 4c a9 d2                     jmp     <a href="#L_d2a9">L_d2a9</a>
 d2a0: 9d 88 05 ad ..<span id="D_d2a0">D_d2a0</span>          .byte   $9d, $88, $05, $ad, $6f, $05, $9d, $6f
 d2a8: 05                           .byte   $05
 d2a9: 60           <span id="D_d2a9">D_d2a9</span>          .byte   $60
-d2aa: ad 85 07     <span id="L_d2aa">L_d2aa</span>          lda     Buttons_Pressed         
+d2aa: ad 85 07     <span id="Fire_Handler">Fire_Handler</span>    lda     Buttons_Held            
 d2ad: 29 40                        and     #$40                    
 d2af: f0 24                        beq     <a href="#L_d2d5">L_d2d5</a>                  
-d2b1: ad 88 03                     lda     A_Button_State          
+d2b1: ad 88 03                     lda     Fire_DebounceFlag       
 d2b4: 29 10                        and     #$10                    
 d2b6: d0 0b                        bne     <a href="#L_d2c3">L_d2c3</a>                  
-d2b8: ad 88 03                     lda     A_Button_State          
+d2b8: ad 88 03                     lda     Fire_DebounceFlag       
 d2bb: 09 10                        ora     #$10                    
-d2bd: 8d 88 03                     sta     A_Button_State          
+d2bd: 8d 88 03                     sta     Fire_DebounceFlag       
 d2c0: 4c cb d2                     jmp     <a href="#L_d2cb">L_d2cb</a>                  
-d2c3: e6 db        <span id="L_d2c3">L_d2c3</span>          inc     A_Hold_Counter          
-d2c5: a5 db                        lda     A_Hold_Counter          
+d2c3: e6 db        <span id="L_d2c3">L_d2c3</span>          inc     Fire_HoldCounter        
+d2c5: a5 db                        lda     Fire_HoldCounter        
 d2c7: c9 0a                        cmp     #$0a                    
 d2c9: 90 12                        bcc     <a href="#L_d2dd">L_d2dd</a>                  
 d2cb: a9 00        <span id="L_d2cb">L_d2cb</span>          lda     #$00                    
-d2cd: 85 db                        sta     A_Hold_Counter          
-d2cf: 20 b9 d3                     jsr     <a href="#L_d3b9">L_d3b9</a>                  
+d2cd: 85 db                        sta     Fire_HoldCounter        
+d2cf: 20 b9 d3                     jsr     <a href="#Spawn_Bullet">Spawn_Bullet</a>            
 d2d2: 4c dd d2                     jmp     <a href="#L_d2dd">L_d2dd</a>                  
 d2d5: ad 88 03 29 ..<span id="D_d2d5">D_d2d5</span>          .byte   $ad, $88, $03, $29, $ef, $8d, $88, $03
 d2dd: 60           <span id="D_d2dd">D_d2dd</span>          .byte   $60
@@ -5765,7 +5768,7 @@ d394: 90 f6                        bcc     <a href="#L_d38c">L_d38c</a>
 d396: ee d9 04                     inc     $04d9                   
 d399: a9 00                        lda     #$00                    
 d39b: 8d 9b 06                     sta     $069b                   
-d39e: 20 aa d2     <span id="L_d39e">L_d39e</span>          jsr     <a href="#L_d2aa">L_d2aa</a>                  
+d39e: 20 aa d2     <span id="L_d39e">L_d39e</span>          jsr     <a href="#Fire_Handler">Fire_Handler</a>            
 d3a1: 20 de d2                     jsr     <a href="#L_d2de">L_d2de</a>                  
 d3a4: 20 f3 d2                     jsr     <a href="#L_d2f3">L_d2f3</a>                  
 d3a7: c9 08                        cmp     #$08                    
@@ -5776,11 +5779,11 @@ d3b0: ad 8e 04                     lda     Entity_Active
 d3b3: 29 ef                        and     #$ef                    
 d3b5: 8d 8e 04                     sta     Entity_Active           
 d3b8: 60                           rts                             
-d3b9: a9 0b        <span id="L_d3b9">L_d3b9</span>          lda     #$0b                    
-d3bb: 8d 1a 07                     sta     $071a                   
+d3b9: a9 0b        <span id="Spawn_Bullet">Spawn_Bullet</span>    lda     #$0b                    
+d3bb: 8d 1a 07                     sta     Bullet_TargetSlot       
 d3be: a9 01                        lda     #$01                    
-d3c0: 8d 19 07                     sta     $0719                   
-d3c3: ac 1a 07     <span id="L_d3c3">L_d3c3</span>          ldy     $071a                   
+d3c0: 8d 19 07                     sta     Bullet_SpawnPending     
+d3c3: ac 1a 07     <span id="L_d3c3">L_d3c3</span>          ldy     Bullet_TargetSlot       
 d3c6: b9 8e 04                     lda     Entity_Active,Y         
 d3c9: 30 03                        bmi     <a href="#L_d3ce">L_d3ce</a>                  
 d3cb: 4c d1 d3                     jmp     <a href="#L_d3d1">L_d3d1</a>                  
@@ -5835,10 +5838,10 @@ d455: a9 01        <span id="L_d455">L_d455</span>          lda     #$01
 d457: 99 f2 04                     sta     $04f2,Y                 
 d45a: a9 14                        lda     #$14                    
 d45c: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
-d45f: ce 19 07                     dec     $0719                   
+d45f: ce 19 07                     dec     Bullet_SpawnPending     
 d462: f0 0d                        beq     <a href="#L_d471">L_d471</a>                  
-d464: ee 1a 07                     inc     $071a                   
-d467: ac 1a 07                     ldy     $071a                   
+d464: ee 1a 07                     inc     Bullet_TargetSlot       
+d467: ac 1a 07                     ldy     Bullet_TargetSlot       
 d46a: c0 0e                        cpy     #$0e                    
 d46c: f0 03                        beq     <a href="#L_d471">L_d471</a>                  
 d46e: 4c c3 d3                     jmp     <a href="#L_d3c3">L_d3c3</a>                  
@@ -6008,7 +6011,7 @@ d67d: 20 bc b0                     jsr     <a href="#L_b0bc">L_b0bc</a>
 d680: 20 f4 a9                     jsr     <a href="#L_a9f4">L_a9f4</a>                  
 d683: 90 c1                        bcc     <a href="#L_d646">L_d646</a>                  
 d685: 20 75 c2     <span id="L_d685">L_d685</span>          jsr     <a href="#L_c275">L_c275</a>                  
-d688: ad 37 04                     lda     $0437                   
+d688: ad 37 04                     lda     Respawn_Count           
 d68b: d0 f8                        bne     <a href="#L_d685">L_d685</a>                  
 d68d: ad 8e 04                     lda     Entity_Active           
 d690: 09 40                        ora     #$40                    
@@ -6132,7 +6135,7 @@ d7bd: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>
 d7c0: 20 40 e2                     jsr     <a href="#L_e240">L_e240</a>                  
 d7c3: ad bc 07                     lda     TwoPlayer_Mode          
 d7c6: d0 05                        bne     <a href="#L_d7cd">L_d7cd</a>                  
-d7c8: ad 37 04                     lda     $0437                   
+d7c8: ad 37 04                     lda     Respawn_Count           
 d7cb: f0 06                        beq     <a href="#L_d7d3">L_d7d3</a>                  
 d7cd: ad 35 04     <span id="L_d7cd">L_d7cd</span>          lda     $0435                   
 d7d0: 8d a1 03                     sta     $03a1                   
@@ -6204,7 +6207,7 @@ d868: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>
 d86b: 20 86 bc                     jsr     <a href="#L_bc86">L_bc86</a>                  
 d86e: ad 84 03                     lda     P2_Active               
 d871: d0 18                        bne     <a href="#L_d88b">L_d88b</a>                  
-d873: ad 37 04                     lda     $0437                   
+d873: ad 37 04                     lda     Respawn_Count           
 d876: f0 13                        beq     <a href="#L_d88b">L_d88b</a>                  
 d878: a9 04                        lda     #$04                    
 d87a: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
@@ -6286,7 +6289,7 @@ d918: 8d a9 03                     sta     $03a9
 d91b: 20 4c 80                     jsr     <a href="#L_804c">L_804c</a>                  
 d91e: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 d921: 4c 06 d9                     jmp     <a href="#L_d906">L_d906</a>                  
-d924: ad 37 04     <span id="L_d924">L_d924</span>          lda     $0437                   
+d924: ad 37 04     <span id="L_d924">L_d924</span>          lda     Respawn_Count           
 d927: d0 1d                        bne     <a href="#L_d946">L_d946</a>                  
 d929: ad 8e 04     <span id="L_d929">L_d929</span>          lda     Entity_Active           
 d92c: 29 40                        and     #$40                    
@@ -6638,7 +6641,7 @@ dc49: ac 84 07                     ldy     $0784
 dc4c: b9 6f e2                     lda     $e26f,Y                 
 dc4f: 4c 8e de                     jmp     <a href="#L_de8e">L_de8e</a>                  
 dc52: a5 98        <span id="L_dc52">L_dc52</span>          lda     Joypad1_State           
-dc54: cd 85 07                     cmp     Buttons_Pressed         
+dc54: cd 85 07                     cmp     Buttons_Held            
 dc57: f0 16                        beq     <a href="#L_dc6f">L_dc6f</a>                  
 dc59: ac 84 07                     ldy     $0784                   
 dc5c: c8                           iny                             
@@ -6744,7 +6747,7 @@ dd3c: c9 20                        cmp     #$20
 dd3e: d0 f6                        bne     <a href="#L_dd36">L_dd36</a>                  
 dd40: a9 00                        lda     #$00                    
 dd42: 8d 8d 03                     sta     $038d                   
-dd45: ad 37 04     <span id="L_dd45">L_dd45</span>          lda     $0437                   
+dd45: ad 37 04     <span id="L_dd45">L_dd45</span>          lda     Respawn_Count           
 dd48: f0 19                        beq     <a href="#L_dd63">L_dd63</a>                  
 dd4a: a5 c9                        lda     $c9                     
 dd4c: d0 15                        bne     <a href="#L_dd63">L_dd63</a>                  
@@ -6864,7 +6867,7 @@ deb4: 20 75 c2     <span id="L_deb4">L_deb4</span>          jsr     <a href="#L_
 deb7: ad 8c 04                     lda     $048c                   
 deba: f0 08                        beq     <a href="#L_dec4">L_dec4</a>                  
 debc: a9 00                        lda     #$00                    
-debe: 8d 37 04                     sta     $0437                   
+debe: 8d 37 04                     sta     Respawn_Count           
 dec1: 4c e0 e1                     jmp     <a href="#L_e1e0">L_e1e0</a>                  
 dec4: ad d9 04     <span id="L_dec4">L_dec4</span>          lda     $04d9                   
 dec7: c9 a0                        cmp     #$a0                    
@@ -7144,7 +7147,7 @@ e147: 20 51 c2                     jsr     <a href="#L_c251">L_c251</a>
 e14a: ad a1 03                     lda     $03a1                   
 e14d: f0 0e                        beq     <a href="#L_e15d">L_e15d</a>                  
 e14f: a9 00                        lda     #$00                    
-e151: 8d 37 04                     sta     $0437                   
+e151: 8d 37 04                     sta     Respawn_Count           
 e154: 8d 8d 07                     sta     $078d                   
 e157: 20 3e a7                     jsr     <a href="#L_a73e">L_a73e</a>                  
 e15a: 4c f0 d7                     jmp     <a href="#L_d7f0">L_d7f0</a>                  
@@ -7184,7 +7187,7 @@ e1c0: 88 ff 01 60 ..                .byte   $88, $ff, $01, $60, $88, $ff, $01, $
 e1c8: 88 00 01 70 ..                .byte   $88, $00, $01, $70, $88, $00, $01, $78
 e1d0: b8 ff 01 78 ..<span id="D_e1d0">D_e1d0</span>          .byte   $b8, $ff, $01, $78, $b8, $ff, $01, $80
 e1d8: b8 ff 01 88 ..                .byte   $b8, $ff, $01, $88, $b8, $ff, $01, $90
-e1e0: ee 37 04     <span id="L_e1e0">L_e1e0</span>          inc     $0437                   
+e1e0: ee 37 04     <span id="L_e1e0">L_e1e0</span>          inc     Respawn_Count           
 e1e3: a9 00                        lda     #$00                    
 e1e5: 8d 8d 07                     sta     $078d                   
 e1e8: 20 db 9f                     jsr     <a href="#L_9fdb">L_9fdb</a>                  
@@ -8624,7 +8627,7 @@ f7bf: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>
 f7c2: 60                           rts                             
 f7c3: dd 0b 05 d0 ..<span id="D_f7c3">D_f7c3</span>          .byte   $dd, $0b, $05, $d0, $01, $60, $9d, $0b
 f7cb: 05 60                        .byte   $05, $60
-f7cd: ad 37 04     <span id="L_f7cd">L_f7cd</span>          lda     $0437                   
+f7cd: ad 37 04     <span id="L_f7cd">L_f7cd</span>          lda     Respawn_Count           
 f7d0: c9 ff                        cmp     #$ff                    
 f7d2: f0 68                        beq     <a href="#L_f83c">L_f83c</a>                  
 f7d4: bd ba 05                     lda     $05ba,X                 
@@ -8705,7 +8708,7 @@ f88f: bd d3 05                     lda     $05d3,X
 f892: c9 20                        cmp     #$20                    
 f894: 90 03                        bcc     <a href="#L_f899">L_f899</a>                  
 f896: 4c 55 f9                     jmp     <a href="#L_f955">L_f955</a>                  
-f899: ad 37 04     <span id="L_f899">L_f899</span>          lda     $0437                   
+f899: ad 37 04     <span id="L_f899">L_f899</span>          lda     Respawn_Count           
 f89c: c9 ff                        cmp     #$ff                    
 f89e: f0 20                        beq     <a href="#L_f8c0">L_f8c0</a>                  
 f8a0: a9 13                        lda     #$13                    
@@ -8785,7 +8788,7 @@ f94a: a9 00        <span id="L_f94a">L_f94a</span>          lda     #$00
 f94c: 9d 8e 04                     sta     Entity_Active,X         
 f94f: 20 2d c3                     jsr     <a href="#L_c32d">L_c32d</a>                  
 f952: 20 37 c2                     jsr     <a href="#L_c237">L_c237</a>                  
-f955: ad 37 04     <span id="L_f955">L_f955</span>          lda     $0437                   
+f955: ad 37 04     <span id="L_f955">L_f955</span>          lda     Respawn_Count           
 f958: c9 ff                        cmp     #$ff                    
 f95a: f0 21                        beq     <a href="#L_f97d">L_f97d</a>                  
 f95c: a9 13                        lda     #$13                    
@@ -8820,7 +8823,7 @@ f9a0: a9 11                        lda     #$11
 f9a2: 20 e1 f9     <span id="L_f9a2">L_f9a2</span>          jsr     <a href="#L_f9e1">L_f9e1</a>                  
 f9a5: ee ec 05                     inc     $05ec                   
 f9a8: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
-f9ab: ad 37 04     <span id="L_f9ab">L_f9ab</span>          lda     $0437                   
+f9ab: ad 37 04     <span id="L_f9ab">L_f9ab</span>          lda     Respawn_Count           
 f9ae: c9 ff                        cmp     #$ff                    
 f9b0: f0 cb                        beq     <a href="#L_f97d">L_f97d</a>                  
 f9b2: a9 12                        lda     #$12                    

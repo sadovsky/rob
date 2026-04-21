@@ -26,18 +26,38 @@ warnings.filterwarnings('ignore')
 os.environ.setdefault('PYTHONWARNINGS', 'ignore')
 
 import disasm
+import genie
 
 
 # nes-py's strict iNES parser rejects headers with non-zero flags7..15.
 # Retail dumps often have flags7=$08; patch a working copy to zero those
-# bytes so the emulator accepts the ROM.
-def ensure_fixed_rom(src_path):
+# bytes so the emulator accepts the ROM. Optional `genie_codes` list
+# applies Game Genie 6/8-letter patches at the PRG bytes they target —
+# this is how we hand the emulator an "infinite lives" / "9 rolls" ROM
+# without writing a real Game Genie hardware emulator.
+def ensure_fixed_rom(src_path, genie_codes=()):
     with open(src_path, 'rb') as f:
         data = bytearray(f.read())
-    if data[7:16] == bytes(9):
+    suffix = '.fixed.nes'
+    needs_patch = False
+    if data[7:16] != bytes(9):
+        data[7:16] = bytes(9)
+        needs_patch = True
+    if genie_codes:
+        suffix = '.fixed.' + '_'.join(c.lower() for c in genie_codes) + '.nes'
+        # PRG starts at offset 16 (no trainer in mapper-0 1942) and is
+        # mapped to $8000-$ffff, so the byte at PRG_offset = addr-$8000+16.
+        for code in genie_codes:
+            addr, value, compare = genie.decode(code)
+            off = (addr - 0x8000) + 16
+            if compare is not None and data[off] != compare:
+                sys.exit(f'genie code {code}: byte at ${addr:04x} is '
+                         f'${data[off]:02x}, expected ${compare:02x}')
+            data[off] = value
+        needs_patch = True
+    if not needs_patch:
         return src_path
-    data[7:16] = bytes(9)
-    fixed = src_path.rsplit('.', 1)[0] + '.fixed.nes'
+    fixed = src_path.rsplit('.', 1)[0] + suffix
     with open(fixed, 'wb') as f:
         f.write(data)
     return fixed
@@ -101,6 +121,33 @@ _move_left_steps,  _move_left_cps  = _ingame([(LEFT, 60), (0, 10)])
 _move_right_steps, _move_right_cps = _ingame([(RIGHT, 60),(0, 10)])
 _move_up_steps,    _move_up_cps    = _ingame([(UP, 60),   (0, 10)])
 _move_down_steps,  _move_down_cps  = _ingame([(DOWN, 60), (0, 10)])
+
+
+# Long auto-fire run with intermediate checkpoints. The aim is to reveal
+# state that drifts during a level — scroll counters, level/wave flags,
+# enemy spawn cursors. We hold B for 6 frames at a time (the press
+# pattern that spawned a bullet in press_b) interleaved with idle, and
+# snapshot every 600 frames (~10 seconds at 60 fps).
+def _build_autofire(total_chunks=8, chunk_frames=600):
+    """Returns (steps, checkpoints) for an autofire run.
+    Steps after press_start+settle: alternating (B, 6) (0, chunk_frames-6)
+    blocks. Checkpoints: baseline (settle) + after each chunk."""
+    chunks = []
+    for _ in range(total_chunks):
+        chunks.append((B, 6))
+        chunks.append((0, chunk_frames - 6))
+    settle_step = (0, _INGAME_SETTLE)
+    steps = list(_press_start_steps) + [settle_step] + chunks
+    baseline_idx = len(_press_start_steps)
+    cps = [baseline_idx]
+    cur = baseline_idx
+    for _ in range(total_chunks):
+        cur += 2  # one (B,6) + one (0, chunk-6)
+        cps.append(cur)
+    return steps, cps
+
+
+_autofire_steps, _autofire_cps = _build_autofire()
 
 SCENARIOS = {
     'boot': Scenario(
@@ -169,6 +216,18 @@ SCENARIOS = {
         description='enter game, snapshot, hold DOWN for 60 frames + 10 idle',
         steps=_move_down_steps,
         checkpoints=_move_down_cps,
+    ),
+    'autofire': Scenario(
+        name='autofire',
+        description=('enter game, snapshot, then 8 chunks of (B for 6 '
+                     'frames + 594 idle) = ~80 seconds of auto-firing. '
+                     'Snapshots every chunk reveal what monotonically '
+                     'drifts (scroll counters, level/wave indices) vs '
+                     'what oscillates (entity slots). Pair with '
+                     '--genie IESUTYZA --genie PASIOALE for max lives '
+                     'and rolls so the player survives long enough.'),
+        steps=_autofire_steps,
+        checkpoints=_autofire_cps,
     ),
 }
 
@@ -263,6 +322,9 @@ def main():
     ap.add_argument('--baseline',
                     help='subtract another scenario\'s changed addresses '
                          '(e.g. --baseline idle to filter out gameplay churn)')
+    ap.add_argument('--genie', action='append', default=[],
+                    help='Game Genie code to apply to the ROM before running '
+                         '(repeatable). E.g. --genie IESUTYZA for 9 lives.')
     ap.add_argument('--list', action='store_true',
                     help='list available scenarios and exit')
     args = ap.parse_args()
@@ -279,7 +341,10 @@ def main():
 
     if not os.path.exists(args.rom):
         sys.exit(f'ROM not found: {args.rom}')
-    rom_path = ensure_fixed_rom(args.rom)
+    rom_path = ensure_fixed_rom(args.rom, tuple(args.genie))
+    if args.genie:
+        print(f'applied Game Genie codes: {", ".join(args.genie)} '
+              f'-> {rom_path}', file=sys.stderr)
 
     # Load disassembly once; correlator queries write_sites.
     rom = disasm.load_ines(args.rom)
