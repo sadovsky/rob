@@ -91,6 +91,10 @@ PPU_AddrHi   = $0089  ; high byte of PPU destination address; $89:$88 is the ful
 PPU_SrcLo    = $008a  ; low byte of source pointer read by PPU_WriteBlock at STA $2007; zero-page ($8a),Y fetch
 PPU_SrcHi    = $008b  ; high byte of source pointer ($8b:$8a) used by PPU_WriteBlock
 PPUCTRL_Shadow = $008c  ; mirror of last value written to $2000; flipping bit $80 gates NMI and is reapplied across routines
+Joypad1_State = $0098  ; P1 controller raw state this frame (8 bits) populated by Joypad_PollOne for X=0
+Joypad1_NewPress = $0099  ; P1 controller newly-pressed bits this frame (rising edges of Joypad1_State)
+Joypad2_State = $009a  ; P2 controller raw state this frame (populated by Joypad_PollOne for X=1)
+Joypad2_NewPress = $009b  ; P2 controller newly-pressed bits this frame
 A_Hold_Counter = $00db  ; frames the A button has been held; rolls over at 10 and triggers L_d3b9 (roll attempt)
 P2_Active    = $0384  ; companion to P1_Active; tested by P1_LifeLost at $b80a to decide whether to swap players or game-over
 P1_Active    = $0385  ; $ff while P1 is the active player; cleared on game-over. Set at $b7da during NewGame_Init_P1
@@ -2122,7 +2126,7 @@ a430: a5 62                        lda     VBlank_Counter
 a432: a6 6f                        ldx     $6f                     
 a434: a6 7e                        ldx     $7e                     
 a436: a6 8d                        ldx     $8d                     
-a438: a6 9b                        ldx     $9b                     
+a438: a6 9b                        ldx     Joypad2_NewPress        
 a43a: a6 a2                        ldx     $a2                     
 a43c: a6 af                        ldx     $af                     
 a43e: a6 ba                        ldx     $ba                     
@@ -3621,7 +3625,7 @@ b6bd: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>
 b6c0: a9 ff                        lda     #$ff                    
 b6c2: 8d 0b 07                     sta     $070b                   
 b6c5: 20 75 c2     <span id="L_b6c5">L_b6c5</span>          jsr     <a href="#L_c275">L_c275</a>                  
-b6c8: a5 98                        lda     $98                     
+b6c8: a5 98                        lda     Joypad1_State           
 b6ca: 29 20                        and     #$20                    
 b6cc: f0 49                        beq     <a href="#L_b717">L_b717</a>                  
 b6ce: ad 82 03                     lda     $0382                   
@@ -3652,7 +3656,7 @@ b717: a9 00 8d 82 ..<span id="D_b717">D_b717</span>          .byte   $a9, $00, $
 b71f: 0a 07 4c 31 ..                .byte   $0a, $07, $4c, $31, $b7
 b724: ce 0a 07 d0 ..<span id="D_b724">D_b724</span>          .byte   $ce, $0a, $07, $d0, $08, $a9, $14, $8d
 b72c: 0a 07 4c d3 ..                .byte   $0a, $07, $4c, $d3, $b6
-b731: a5 98        <span id="L_b731">L_b731</span>          lda     $98                     
+b731: a5 98        <span id="L_b731">L_b731</span>          lda     Joypad1_State           
 b733: 29 10                        and     #$10                    
 b735: f0 08                        beq     <a href="#L_b73f">L_b73f</a>                  
 b737: ad 88 03                     lda     A_Button_State          
@@ -4606,7 +4610,7 @@ c0fa: 8e 2c 07                     stx     $072c
 c0fd: a2 ff                        ldx     #$ff                    
 c0ff: 9a                           txs                             
 c100: 20 ea a0                     jsr     <a href="#L_a0ea">L_a0ea</a>                  
-c103: 20 ad c1                     jsr     <a href="#L_c1ad">L_c1ad</a>                  
+c103: 20 ad c1                     jsr     <a href="#Joypad_StrobeAndRead">Joypad_StrobeAndRead</a>    
 c106: e6 62                        inc     VBlank_Counter          
 c108: a2 00                        ldx     #$00                    
 c10a: a9 c0                        lda     #$c0                    
@@ -4685,19 +4689,19 @@ c1a6: a4 65                        ldy     NMI_SaveY
 c1a8: a6 64                        ldx     $64                     
 c1aa: a5 63                        lda     NMI_SaveA               
 c1ac: 40                           rti                             
-c1ad: a9 01        <span id="L_c1ad">L_c1ad</span>          lda     #$01                    
+c1ad: a9 01        <span id="Joypad_StrobeAndRead">Joypad_StrobeAndRead</span>lda     #$01                    
 c1af: 8d 16 40                     sta     JOY1                    
 c1b2: a9 00                        lda     #$00                    
 c1b4: 8d 16 40                     sta     JOY1                    
 c1b7: 85 94                        sta     $94                     
 c1b9: a2 00                        ldx     #$00                    
-c1bb: 20 c7 c1                     jsr     <a href="#L_c1c7">L_c1c7</a>                  
+c1bb: 20 c7 c1                     jsr     <a href="#Joypad_PollOne">Joypad_PollOne</a>          
 c1be: e8                           inx                             
 c1bf: a9 00                        lda     #$00                    
 c1c1: 85 94                        sta     $94                     
-c1c3: 20 c7 c1                     jsr     <a href="#L_c1c7">L_c1c7</a>                  
+c1c3: 20 c7 c1                     jsr     <a href="#Joypad_PollOne">Joypad_PollOne</a>          
 c1c6: 60                           rts                             
-c1c7: a0 08        <span id="L_c1c7">L_c1c7</span>          ldy     #$08                    
+c1c7: a0 08        <span id="Joypad_PollOne">Joypad_PollOne</span>  ldy     #$08                    
 c1c9: 85 94        <span id="L_c1c9">L_c1c9</span>          sta     $94                     
 c1cb: bd 16 40                     lda     JOY1,X                  
 c1ce: 85 95                        sta     $95                     
@@ -6633,7 +6637,7 @@ dc46: ce 83 07     <span id="L_dc46">L_dc46</span>          dec     $0783
 dc49: ac 84 07                     ldy     $0784                   
 dc4c: b9 6f e2                     lda     $e26f,Y                 
 dc4f: 4c 8e de                     jmp     <a href="#L_de8e">L_de8e</a>                  
-dc52: a5 98        <span id="L_dc52">L_dc52</span>          lda     $98                     
+dc52: a5 98        <span id="L_dc52">L_dc52</span>          lda     Joypad1_State           
 dc54: cd 85 07                     cmp     Buttons_Pressed         
 dc57: f0 16                        beq     <a href="#L_dc6f">L_dc6f</a>                  
 dc59: ac 84 07                     ldy     $0784                   
@@ -6681,7 +6685,7 @@ dcb8: b0 03                        bcs     <a href="#L_dcbd">L_dcbd</a>
 dcba: 4c 9d de                     jmp     <a href="#L_de9d">L_de9d</a>                  
 dcbd: ad 84 03     <span id="L_dcbd">L_dcbd</span>          lda     P2_Active               
 dcc0: d0 06                        bne     <a href="#L_dcc8">L_dcc8</a>                  
-dcc2: a5 98                        lda     $98                     
+dcc2: a5 98                        lda     Joypad1_State           
 dcc4: 29 10                        and     #$10                    
 dcc6: d0 03                        bne     <a href="#L_dccb">L_dccb</a>                  
 dcc8: 4c 45 dd     <span id="L_dcc8">L_dcc8</span>          jmp     <a href="#L_dd45">L_dd45</a>                  
@@ -6721,15 +6725,15 @@ dd11: 20 d0 a0                     jsr     <a href="#L_a0d0">L_a0d0</a>
 dd14: 20 75 c2     <span id="L_dd14">L_dd14</span>          jsr     <a href="#L_c275">L_c275</a>                  
 dd17: a9 ff                        lda     #$ff                    
 dd19: 8d 8d 03                     sta     $038d                   
-dd1c: a5 98                        lda     $98                     
+dd1c: a5 98                        lda     Joypad1_State           
 dd1e: 29 10                        and     #$10                    
 dd20: d0 f2        <span id="L_dd20">L_dd20</span>          bne     <a href="#L_dd14">L_dd14</a>                  
 dd22: 20 75 c2     <span id="L_dd22">L_dd22</span>          jsr     <a href="#L_c275">L_c275</a>                  
-dd25: a5 98                        lda     $98                     
+dd25: a5 98                        lda     Joypad1_State           
 dd27: 29 10                        and     #$10                    
 dd29: f0 f7                        beq     <a href="#L_dd22">L_dd22</a>                  
 dd2b: 20 75 c2     <span id="L_dd2b">L_dd2b</span>          jsr     <a href="#L_c275">L_c275</a>                  
-dd2e: a5 98                        lda     $98                     
+dd2e: a5 98                        lda     Joypad1_State           
 dd30: 29 10                        and     #$10                    
 dd32: d0 f7                        bne     <a href="#L_dd2b">L_dd2b</a>                  
 dd34: a9 06                        lda     #$06                    
