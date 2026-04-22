@@ -3412,7 +3412,7 @@ b3c8: 60                           .byte   $60
 b3c9: a9 00 9d 8e ..<span id="D_b3c9">D_b3c9</span>          .byte   $a9, $00, $9d, $8e, $04, $60
 b3cf: bd 8e 04 29  <span id="D_b3cf">D_b3cf</span>          .byte   $bd, $8e, $04, $29
 b3d3: 01 60        <span id="L_b3d3">L_b3d3</span>          ora     ($60,X)                 
-b3d5: a2 0b                        ldx     #$0b                    
+b3d5: a2 0b        <span id="Fiber_13_PlayerBulletDriver">Fiber_13_PlayerBulletDriver</span>ldx     #$0b                    
 b3d7: ad 80 03                     lda     $0380                   
 b3da: c9 ff                        cmp     #$ff                    
 b3dc: d0 03                        bne     <a href="#L_b3e1">L_b3e1</a>                  
@@ -3535,14 +3535,14 @@ b4fe: a9 01                        lda     #$01
 b500: 9d d9 04                     sta     Entity_SpriteTile,X     
 b503: 20 75 c2     <span id="L_b503">L_b503</span>          jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
 b506: 4c 03 b5                     jmp     <a href="#L_b503">L_b503</a>                  
-b509: a2 03        <span id="L_b509">L_b509</span>          ldx     #$03                    
+b509: a2 03        <span id="Fiber_14_BulletDriverB">Fiber_14_BulletDriverB</span>ldx     #$03                    
 b50b: bd 8e 04     <span id="L_b50b">L_b50b</span>          lda     Entity_Active,X         
 b50e: 30 0b                        bmi     <a href="#L_b51b">L_b51b</a>                  
 b510: e8                           inx                             
 b511: e0 0b                        cpx     #$0b                    
 b513: d0 f6                        bne     <a href="#L_b50b">L_b50b</a>                  
 b515: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
-b518: 4c 09 b5                     jmp     <a href="#L_b509">L_b509</a>                  
+b518: 4c 09 b5                     jmp     <a href="#Fiber_14_BulletDriverB">Fiber_14_BulletDriverB</a>  
 b51b: a9 07 9d d9 ..<span id="D_b51b">D_b51b</span>          .byte   $a9, $07, $9d, $d9, $04, $20, $33, $b5
 b523: b0 03 4c 10 ..                .byte   $b0, $03, $4c, $10, $b5, $a9, $00, $9d
 b52b: 8e 04 4c 10 ..                .byte   $8e, $04, $4c, $10, $b5, $4c, $28, $b5
