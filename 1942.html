@@ -99,6 +99,9 @@ Joypad2_State = $009a  ; P2 controller raw state this frame (populated by Joypad
 Joypad2_NewPress = $009b  ; P2 controller newly-pressed bits this frame
 Fire_HoldCounter = $00db  ; frames the B (Fire) button has been held; Fire_Handler (L_d2aa) increments while held and rolls over at 10 to call Spawn_Bullet — that's the auto-fire repeat rate (~10 frames between bullets when B is held)
 Dives        = $022d  ; loop/dive counter for the player. Game Genie 022D:03 (Infinite Dives) pins this to $03, so the player can always loop. Companion to Rolls ($0436) — the two together are 1942's twin defensive moves
+TitleMenu_CursorMask = $032a  ; 5 bytes ($032a-$032e) holding the title-menu cursor sprite mask. The blink loop at $b74e-b75a does `ldy #$04 / lda $032a,Y / eor #$ff / sta $032a,Y / dey / bpl` every (TitleMenu_FrameTimer & 3)==0, so the mask flips between two states roughly every 4 frames. Confirmed via idle_titlescreen drift: all 5 bytes FLIP between $00 and $ff in lockstep
+MenuCursor_Latched = $0381  ; mode chosen on the title screen, latched in by START at $b771 via `lda MenuCursor_Index / sta $0381`. Read by the game-init paths to pick the 1P/2P scenario
+Select_Debounce = $0382  ; title-screen SELECT-held debounce flag: nonzero means SELECT was held last frame. Set to $ff at $b6d5 on the rising edge so the cursor only advances once per press; cleared at $b717 when SELECT is released
 P2_Active    = $0384  ; companion to P1_Active; tested by P1_LifeLost at $b80a to decide whether to swap players or game-over
 P1_Active    = $0385  ; $ff while P1 is the active player; cleared on game-over. Set at $b7da during NewGame_Init_P1
 Active_Player_Index = $0386  ; 0 = P1 currently playing, 1 = P2 currently playing. NewGame_Init_P1 inits to 0; SwapTo_P2 sets to 1, SwapTo_P1 / Restore_P1_NoSave set to 0
@@ -131,8 +134,10 @@ P2_SavedState = $046b  ; 33-byte ($21) save buffer for P2 state while P1 is play
 PrevDirection_Save = $048d  ; one-frame stash of the previous Entity_Direction. Written by SetEntityDirection ($d593) before it overwrites $050b,X — lets downstream code detect a direction change
 Entity_Active = $048e  ; entity SOA attribute 0 (active flag): bit $80 = slot in use, tested by L_f7cd. The whole entity table is 25 attributes x 25 slots, $19-byte stride per attribute, running $048e..$0682. Slot 0 is the player; Reset_Rolls clears slots 0-11 (player + co-active aux entities)
 Entity_Y     = $04a7  ; entity SOA attribute 1 (vertical position); 25 slots at +0..+24 within the table. Slot 0 is the player: UP drives toward $56 (top), DOWN toward $c1 (bottom)
+MenuCursor_Y = $04b2  ; Y position of the title-screen menu cursor — physically slot 11 of Entity_Y (the bullet slot during gameplay), repurposed on the title screen. Set to $7f / $8f / $9f for the three menu rows by the dispatch arms at $b6fc / $b702 / $b70a
 Entity_X     = $04c0  ; entity SOA attribute 2 (horizontal position); 25 slots. Slot 0 is the player: LEFT drives toward $1e (left edge), RIGHT toward $e6 (right edge). L_aa61 reads Entity_X,X / Entity_X,Y for collision checks between two arbitrary slots
 Entity_Direction = $050b  ; entity SOA attribute 5 (8-direction code, $0..$e in steps of 2): $00=UP, $02=UP+RIGHT, $04=RIGHT, $06=DOWN+RIGHT, $08=DOWN, $0a=DOWN+LEFT, $0c=LEFT, $0e=UP+LEFT. Set by SetEntityDirection from the dpad handler. Confirmed live: move_left puts $0c into $050b
+TitleMenu_FrameTimer = $070b  ; title-screen frame counter for the menu-cursor blink: initialized to $ff at $b6c0 just before the menu loop entry, decremented every iteration at $b744. When (timer & 3)==0 the loop falls through to the cursor-blink eor at $b74e-b75a (the 5-byte mask at TitleMenu_CursorMask). Confirmed via idle_titlescreen drift: SAW with constant -50 step over 150-frame chunks (consistent with one dec per frame, modulo wrap)
 Bullet_SpawnPending = $0719  ; $01 written by Spawn_Bullet alongside Bullet_TargetSlot — likely a one-shot 'spawn requested' flag consumed by the entity update pass
 Bullet_TargetSlot = $071a  ; $0b written by Spawn_Bullet — the entity slot index ($0b = 11) where the new bullet is being installed. Read at L_d3c3 to look up Entity_Active,Y
 Spawn_PatternIndex = $071f  ; 8-state rotating index used by the enemy-spawn routine. Read at $f054 / $f176 / $f34c / $f42c (each masks `and #$07`, ASLs twice to get a 4-byte stride, indexes the spawn-parameter table at $f12e to fetch four per-spawn fields), then incremented in place. Drives wave-pattern variety
@@ -140,6 +145,7 @@ HUD_BlinkSubcount = $0725  ; frames-of-current-second for the HUD blink driver: 
 HUD_BlinkSeconds = $0726  ; seconds counter for the HUD blink driver: incremented at $c145 each time HUD_BlinkSubcount wraps. Bit 0 selects between two 12-byte HUD glyph blocks ($c372 vs $c366) that get copied to OAM at $0200, producing the 1Hz on/off blink (PUSH START / 1UP-style indicator). Confirmed by long_idle drift: +1 per ~1 sec of in-game time
 Buttons_Held = $0785  ; current-frame joypad state stored MSB-first (A=$80, B=$40, SEL=$20, START=$10, UP=$08, DOWN=$04, LEFT=$02, RIGHT=$01). NOTE: bit ordering is the OPPOSITE of $98/$9a (which are LSB-first from Joypad_PollOne) — this byte is filled elsewhere in the input stack. Fire_Handler tests bit $40 (B); the input handlers at L_d472 / L_dc54 consume this same byte
 PPU_UpdateQueue = $078f  ; variable-length PPU update queue consumed by NMI_Handler. Each entry: addr_hi, addr_lo, count, count×data_byte; queue terminates when count == 0
+MenuCursor_Index = $07bb  ; title-screen menu cursor (0=1P normal, 1=1P alt, 2=2P, masked to 0..3). Incremented on each SELECT rising edge at $b6dd; the value drives MenuCursor_Y at $04b2 and TwoPlayer_Mode at $07bc. When the player commits with START, $b771 copies this byte to $0381 as the chosen-mode latch
 TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from menu choice, gates 2P paths in Continue_Init_P1 / NewGame_Init_P2
 WarmBoot_Magic1 = $07bd  ; first half of the warm-boot magic word; Reset_Handler skips RAM-clear when $07bd:$07be == $55:$aa
 WarmBoot_Magic2 = $07be  ; second half of the warm-boot magic word; together with WarmBoot_Magic1 distinguishes warm restart from cold power-on
@@ -149,6 +155,7 @@ TrueScore_b2 = $07c1  ; third BCD digit of the true score
 TrueScore_b3 = $07c2  ; fourth BCD digit of the true score
 TrueScore_b4 = $07c3  ; fifth BCD digit of the true score
 TrueScore_Hi = $07c4  ; highest BCD digit of the true score
+GameState_Active = $07c5  ; game-state flag: $00 at boot/title and after game-over (cleared at $c02a in init and $e195 in game-over alongside Lives_Tens/Ones); $ff during a life via Death_Sequence at $d7a3. Two title-screen consumers gate on it being nonzero: $b6f0 (skip the 2P menu row when cleared) and $bb1e (pick alternate HUD-tile sequence). Most consistent reading is 'a game session is in progress / has occurred since boot'
 
 8000: a9 1e        <span id="L_8000">L_8000</span>          lda     #$1e                    
 8002: 8d 8e 03                     sta     $038e                   
@@ -3649,31 +3656,31 @@ b6b8: 99 d9 04                     sta     $04d9,Y
 b6bb: a9 1a                        lda     #$1a                    
 b6bd: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
 b6c0: a9 ff                        lda     #$ff                    
-b6c2: 8d 0b 07                     sta     $070b                   
-b6c5: 20 75 c2     <span id="L_b6c5">L_b6c5</span>          jsr     <a href="#L_c275">L_c275</a>                  
+b6c2: 8d 0b 07                     sta     TitleMenu_FrameTimer    
+b6c5: 20 75 c2     <span id="TitleMenu_Handler">TitleMenu_Handler</span>jsr     <a href="#L_c275">L_c275</a>                  
 b6c8: a5 98                        lda     Joypad1_State           
 b6ca: 29 20                        and     #$20                    
 b6cc: f0 49                        beq     <a href="#L_b717">L_b717</a>                  
-b6ce: ad 82 03                     lda     $0382                   
+b6ce: ad 82 03                     lda     Select_Debounce         
 b6d1: d0 51                        bne     <a href="#L_b724">L_b724</a>                  
 b6d3: a9 ff                        lda     #$ff                    
-b6d5: 8d 82 03                     sta     $0382                   
+b6d5: 8d 82 03                     sta     Select_Debounce         
 b6d8: a9 00                        lda     #$00                    
 b6da: 8d bc 07                     sta     TwoPlayer_Mode          
-b6dd: ee bb 07                     inc     $07bb                   
-b6e0: ad bb 07                     lda     $07bb                   
+b6dd: ee bb 07                     inc     MenuCursor_Index        
+b6e0: ad bb 07                     lda     MenuCursor_Index        
 b6e3: 29 03                        and     #$03                    
-b6e5: 8d bb 07                     sta     $07bb                   
+b6e5: 8d bb 07                     sta     MenuCursor_Index        
 b6e8: c9 03                        cmp     #$03                    
 b6ea: f0 1e                        beq     <a href="#L_b70a">L_b70a</a>                  
 b6ec: c9 02                        cmp     #$02                    
 b6ee: d0 12                        bne     <a href="#L_b702">L_b702</a>                  
-b6f0: ad c5 07                     lda     $07c5                   
+b6f0: ad c5 07                     lda     GameState_Active        
 b6f3: f0 15                        beq     <a href="#L_b70a">L_b70a</a>                  
 b6f5: a9 ff                        lda     #$ff                    
 b6f7: 8d bc 07                     sta     TwoPlayer_Mode          
 b6fa: a9 9f                        lda     #$9f                    
-b6fc: 8d b2 04                     sta     $04b2                   
+b6fc: 8d b2 04                     sta     MenuCursor_Y            
 b6ff: 4c 31 b7                     jmp     <a href="#L_b731">L_b731</a>                  
 b702: a9 8f 8d b2 ..<span id="D_b702">D_b702</span>          .byte   $a9, $8f, $8d, $b2, $04, $4c, $31, $b7
 b70a: a9 00 8d bb ..<span id="D_b70a">D_b70a</span>          .byte   $a9, $00, $8d, $bb, $07, $a9, $7f, $8d
@@ -3689,17 +3696,17 @@ b737: ad 88 03                     lda     Button_DebounceFlags
 b73a: d0 08                        bne     <a href="#L_b744">L_b744</a>                  
 b73c: 4c 5e b7                     jmp     <a href="#L_b75e">L_b75e</a>                  
 b73f: a9 00 8d 88 ..<span id="D_b73f">D_b73f</span>          .byte   $a9, $00, $8d, $88, $03
-b744: ce 0b 07     <span id="L_b744">L_b744</span>          dec     $070b                   
-b747: ad 0b 07                     lda     $070b                   
+b744: ce 0b 07     <span id="L_b744">L_b744</span>          dec     TitleMenu_FrameTimer    
+b747: ad 0b 07                     lda     TitleMenu_FrameTimer    
 b74a: 29 03                        and     #$03                    
 b74c: d0 0d                        bne     <a href="#L_b75b">L_b75b</a>                  
 b74e: a0 04                        ldy     #$04                    
-b750: b9 2a 03     <span id="L_b750">L_b750</span>          lda     $032a,Y                 
+b750: b9 2a 03     <span id="L_b750">L_b750</span>          lda     TitleMenu_CursorMask,Y  
 b753: 49 ff                        eor     #$ff                    
-b755: 99 2a 03                     sta     $032a,Y                 
+b755: 99 2a 03                     sta     TitleMenu_CursorMask,Y  
 b758: 88                           dey                             
 b759: 10 f5                        bpl     <a href="#L_b750">L_b750</a>                  
-b75b: 4c c5 b6     <span id="L_b75b">L_b75b</span>          jmp     <a href="#L_b6c5">L_b6c5</a>                  
+b75b: 4c c5 b6     <span id="L_b75b">L_b75b</span>          jmp     <a href="#TitleMenu_Handler">TitleMenu_Handler</a>       
 b75e: a9 00        <span id="L_b75e">L_b75e</span>          lda     #$00                    
 b760: 8d 85 03                     sta     P1_Active               
 b763: 8d 80 03                     sta     $0380                   
@@ -3707,8 +3714,8 @@ b766: 8d 84 03                     sta     P2_Active
 b769: 20 06 c3                     jsr     <a href="#L_c306">L_c306</a>                  
 b76c: ad bc 07                     lda     TwoPlayer_Mode          
 b76f: d0 06                        bne     <a href="#L_b777">L_b777</a>                  
-b771: ad bb 07     <span id="L_b771">L_b771</span>          lda     $07bb                   
-b774: 8d 81 03                     sta     $0381                   
+b771: ad bb 07     <span id="L_b771">L_b771</span>          lda     MenuCursor_Index        
+b774: 8d 81 03                     sta     MenuCursor_Latched      
 b777: a9 04        <span id="L_b777">L_b777</span>          lda     #$04                    
 b779: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
 b77c: 20 37 c2                     jsr     <a href="#L_c237">L_c237</a>                  
@@ -3746,7 +3753,7 @@ b7f8: 10 fa                        bpl     <a href="#L_b7f4">L_b7f4</a>
 b7fa: 20 22 b9                     jsr     <a href="#L_b922">L_b922</a>                  
 b7fd: ad 84 03                     lda     P2_Active               
 b800: d0 05                        bne     <a href="#P1_LifeLost">P1_LifeLost</a>             
-b802: ad 81 03                     lda     $0381                   
+b802: ad 81 03                     lda     MenuCursor_Latched      
 b805: d0 3b                        bne     <a href="#Continue_Init_P1">Continue_Init_P1</a>        
 b807: 20 a1 d7     <span id="P1_LifeLost">P1_LifeLost</span>     jsr     <a href="#Death_Sequence">Death_Sequence</a>          
 b80a: ad 84 03                     lda     P2_Active               
@@ -4023,7 +4030,7 @@ ba9d: 85 88                        sta     PPU_AddrLo
 ba9f: a9 06                        lda     #$06                    
 baa1: 85 87                        sta     PPU_WriteCount          
 baa3: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
-baa6: ad 81 03                     lda     $0381                   
+baa6: ad 81 03                     lda     MenuCursor_Latched      
 baa9: f0 2e                        beq     <a href="#L_bad9">L_bad9</a>                  
 baab: a9 bb                        lda     #$bb                    
 baad: 85 8b                        sta     PPU_SrcHi               
@@ -4080,7 +4087,7 @@ bb15: 85 88                        sta     PPU_AddrLo
 bb17: a9 09                        lda     #$09                    
 bb19: 85 87                        sta     PPU_WriteCount          
 bb1b: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
-bb1e: ad c5 07                     lda     $07c5                   
+bb1e: ad c5 07                     lda     GameState_Active        
 bb21: f0 17                        beq     <a href="#L_bb3a">L_bb3a</a>                  
 bb23: a9 bc                        lda     #$bc                    
 bb25: 85 8b                        sta     PPU_SrcHi               
@@ -4287,7 +4294,7 @@ bdc1: 85 88                        sta     PPU_AddrLo
 bdc3: a9 06                        lda     #$06                    
 bdc5: 85 87                        sta     PPU_WriteCount          
 bdc7: 20 1b 80                     jsr     <a href="#PPU_WriteBlock">PPU_WriteBlock</a>          
-bdca: ad 81 03                     lda     $0381                   
+bdca: ad 81 03                     lda     MenuCursor_Latched      
 bdcd: f0 2e                        beq     <a href="#L_bdfd">L_bdfd</a>                  
 bdcf: a9 bf                        lda     #$bf                    
 bdd1: 85 8b                        sta     PPU_SrcHi               
@@ -4541,7 +4548,7 @@ c020: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>
 c023: a9 02                        lda     #$02                    
 c025: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
 c028: a9 00                        lda     #$00                    
-c02a: 8d c5 07                     sta     $07c5                   
+c02a: 8d c5 07                     sta     GameState_Active        
 c02d: 4c c0 c2                     jmp     <a href="#Main_Loop">Main_Loop</a>               
 c030: 85 63        <span id="NMI_Handler">NMI_Handler</span>     sta     NMI_SaveA               ; NMI entry point
 c032: 86 64                        stx     $64                     
@@ -6144,7 +6151,7 @@ d797: 99 6f 05                     sta     $056f,Y
 d79a: 60                           rts                             
 d79b: ad 37 04 c9 ..                .byte   $ad, $37, $04, $c9, $ff, $60
 d7a1: a9 ff        <span id="Death_Sequence">Death_Sequence</span>  lda     #$ff                    
-d7a3: 8d c5 07                     sta     $07c5                   
+d7a3: 8d c5 07                     sta     GameState_Active        
 d7a6: 8d 18 07                     sta     $0718                   
 d7a9: a9 00                        lda     #$00                    
 d7ab: 8d 39 04                     sta     Spawn_TallyAlt_Lo       
@@ -6459,7 +6466,7 @@ da64: b9 dd eb                     lda     $ebdd,Y
 da67: 8d 0a 07                     sta     $070a                   
 da6a: c8                           iny                             
 da6b: b9 dd eb                     lda     $ebdd,Y                 
-da6e: 8d 0b 07                     sta     $070b                   
+da6e: 8d 0b 07                     sta     TitleMenu_FrameTimer    
 da71: a5 d4        <span id="L_da71">L_da71</span>          lda     $d4                     
 da73: 18                           clc                             
 da74: 69 03                        adc     #$03                    
@@ -6557,13 +6564,13 @@ db3b: 90 db                        bcc     <a href="#L_db18">L_db18</a>
 db3d: f0 d9                        beq     <a href="#L_db18">L_db18</a>                  
 db3f: 99 cd 06                     sta     $06cd,Y                 
 db42: ad 0a 07     <span id="L_db42">L_db42</span>          lda     $070a                   
-db45: 0d 0b 07                     ora     $070b                   
+db45: 0d 0b 07                     ora     TitleMenu_FrameTimer    
 db48: f0 10                        beq     <a href="#L_db5a">L_db5a</a>                  
 db4a: ce 0a 07                     dec     $070a                   
 db4d: ad 0a 07                     lda     $070a                   
 db50: c9 ff                        cmp     #$ff                    
 db52: d0 1e                        bne     <a href="#L_db72">L_db72</a>                  
-db54: ce 0b 07                     dec     $070b                   
+db54: ce 0b 07                     dec     TitleMenu_FrameTimer    
 db57: 4c 72 db                     jmp     <a href="#L_db72">L_db72</a>                  
 db5a: a9 01        <span id="L_db5a">L_db5a</span>          lda     #$01                    
 db5c: 8d 0c 07                     sta     $070c                   
@@ -6575,7 +6582,7 @@ db65: b9 dd eb                     lda     $ebdd,Y
 db68: 8d 0a 07                     sta     $070a                   
 db6b: c8                           iny                             
 db6c: b9 dd eb                     lda     $ebdd,Y                 
-db6f: 8d 0b 07                     sta     $070b                   
+db6f: 8d 0b 07                     sta     TitleMenu_FrameTimer    
 db72: ad 18 07     <span id="L_db72">L_db72</span>          lda     $0718                   
 db75: c9 ff                        cmp     #$ff                    
 db77: d0 03                        bne     <a href="#L_db7c">L_db7c</a>                  
@@ -7198,7 +7205,7 @@ e18b: a9 00                        lda     #$00
 e18d: 85 87                        sta     PPU_WriteCount          
 e18f: 8d 31 04                     sta     Lives_Tens              
 e192: 8d 32 04                     sta     Lives_Ones              
-e195: 8d c5 07                     sta     $07c5                   
+e195: 8d c5 07                     sta     GameState_Active        
 e198: 20 51 c2                     jsr     <a href="#L_c251">L_c251</a>                  
 e19b: 4c e0 e1                     jmp     <a href="#L_e1e0">L_e1e0</a>                  
 e19e: 0c 18 17 10 ..                .byte   $0c, $18, $17, $10, $1b, $0a, $1d, $1e

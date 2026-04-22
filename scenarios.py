@@ -176,6 +176,20 @@ _long_idle_steps, _long_idle_cps = _build_long_idle()
 _press_select_steps, _press_select_cps = _ingame([(SELECT, 6), (0, 120)])
 
 
+# SELECT at the title screen: most arcade ports use it to toggle
+# 1P/2P mode. Idle to title, snapshot, press SELECT a few times,
+# snapshot. Compare against idle_titlescreen baseline for the same
+# duration.
+_select_titlescreen_steps = list(_boot_steps) + [
+    (0, 240),
+    (SELECT, 6), (0, 30),
+    (SELECT, 6), (0, 30),
+    (SELECT, 6), (0, 30),
+]
+_select_titlescreen_cps = [len(_boot_steps) - 1,
+                           len(_select_titlescreen_steps) - 1]
+
+
 # Long pre-START idle: stays on the title/attract screen and snapshots
 # every chunk. Reveals title-screen animation counters and the
 # demo/attract-mode trigger countdown — anything that ticks while the
@@ -358,6 +372,15 @@ SCENARIOS = {
                      'pause flag or HUD-mode toggle'),
         steps=_press_select_steps,
         checkpoints=_press_select_cps,
+    ),
+    'select_titlescreen': Scenario(
+        name='select_titlescreen',
+        description=('boot to title screen, snapshot, press SELECT '
+                     'three times. Compares against idle_titlescreen '
+                     'baseline to isolate the 1P/2P toggle byte that '
+                     'SELECT cycles on the menu'),
+        steps=_select_titlescreen_steps,
+        checkpoints=_select_titlescreen_cps,
     ),
     'idle_titlescreen': Scenario(
         name='idle_titlescreen',
