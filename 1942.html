@@ -139,6 +139,12 @@ Entity_Y     = $04a7  ; entity SOA attribute 1 (vertical position); 25 slots at 
 MenuCursor_Y = $04b2  ; Y position of the title-screen menu cursor — physically slot 11 of Entity_Y (the bullet slot during gameplay), repurposed on the title screen. Set to $7f / $8f / $9f for the three menu rows by the dispatch arms at $b6fc / $b702 / $b70a
 Entity_X     = $04c0  ; entity SOA attribute 2 (horizontal position); 25 slots. Slot 0 is the player: LEFT drives toward $1e (left edge), RIGHT toward $e6 (right edge). L_aa61 reads Entity_X,X / Entity_X,Y for collision checks between two arbitrary slots
 Entity_Direction = $050b  ; entity SOA attribute 5 (8-direction code, $0..$e in steps of 2): $00=UP, $02=UP+RIGHT, $04=RIGHT, $06=DOWN+RIGHT, $08=DOWN, $0a=DOWN+LEFT, $0c=LEFT, $0e=UP+LEFT. Set by SetEntityDirection from the dpad handler. Confirmed live: move_left puts $0c into $050b
+Entity_PosY_HiBit = $0524  ; entity SOA attribute 6: high bit of the 24-bit fixed-point Y position. Updated in the Y-position integration at $b061-b08c where the carry from `lda $0399 / adc $0524,X` propagates back via `and #$01 / sta $0524,X`. Slot 0 = player. Pairs with Entity_PosY_FracMid ($053d, attr 7) and Entity_PosY_FracLo ($0556, attr 8) and the displayed integer Entity_Y ($04a7, attr 1)
+Entity_PosY_FracMid = $053d  ; entity SOA attribute 7: middle byte of the 24-bit Y position. The physics-tick at $b055-b05b reads `$039a` (Y-velocity mid) and adds it: `lda $039a / adc $053d,X / sta $053d,X`. Carries up into Entity_PosY_HiBit. Confirmed live: copied during slot-clone at $b1ab
+Entity_PosY_FracLo = $0556  ; entity SOA attribute 8: lowest sub-pixel byte of the Y position. The physics-tick at $b04c-b052 adds `$039b` (Y-velocity low) into it: `lda $039b / adc $0556,X / sta $0556,X`. Carries into Entity_PosY_FracMid. Confirmed live: copied during slot-clone at $b1a5
+Entity_PosX_HiBit = $056f  ; entity SOA attribute 9: high bit of the 24-bit X position. Updated at $b0a2-b0aa where `lda $0396 / adc $056f,X / and #$01 / sta $056f,X` propagates the X-add carry. Pairs with Entity_PosX_FracMid ($0588, attr 10), Entity_PosX_FracLo ($05a1, attr 11), and displayed integer Entity_X ($04c0, attr 2)
+Entity_PosX_FracMid = $0588  ; entity SOA attribute 10: middle byte of the 24-bit X position. The physics-tick at $b099-b09f does `lda $0397 / adc $0588,X / sta $0588,X` (adds X-velocity mid byte). Carries up into Entity_PosX_HiBit. Confirmed live: copied during slot-clone at $b1bf, also written at the bullet-init site $d080
+Entity_PosX_FracLo = $05a1  ; entity SOA attribute 11: lowest sub-pixel byte of the X position. The physics-tick at $b08f-b096 does `lda $0398 / clc / adc $05a1,X / sta $05a1,X` (adds X-velocity low byte). Carries into Entity_PosX_FracMid. Confirmed live: copied during slot-clone at $b1b9, cleared at the bullet-init site $d088
 TitleMenu_FrameTimer = $070b  ; title-screen frame counter for the menu-cursor blink: initialized to $ff at $b6c0 just before the menu loop entry, decremented every iteration at $b744. When (timer & 3)==0 the loop falls through to the cursor-blink eor at $b74e-b75a (the 5-byte mask at TitleMenu_CursorMask). Confirmed via idle_titlescreen drift: SAW with constant -50 step over 150-frame chunks (consistent with one dec per frame, modulo wrap)
 Bullet_SpawnPending = $0719  ; $01 written by Spawn_Bullet alongside Bullet_TargetSlot — likely a one-shot 'spawn requested' flag consumed by the entity update pass
 Bullet_TargetSlot = $071a  ; $0b written by Spawn_Bullet — the entity slot index ($0b = 11) where the new bullet is being installed. Read at L_d3c3 to look up Entity_Active,Y
@@ -516,15 +522,15 @@ GameState_Active = $07c5  ; game-state flag: $00 at boot/title and after game-ov
 8330: 0d 34 07                     ora     $0734                   
 8333: 91 8a                        sta     ($8a),Y                 
 8335: 60                           rts                             
-8336: bd 88 05     <span id="L_8336">L_8336</span>          lda     $0588,X                 
+8336: bd 88 05     <span id="L_8336">L_8336</span>          lda     Entity_PosX_FracMid,X   
 8339: 8d 97 03                     sta     $0397                   
-833c: bd 6f 05                     lda     $056f,X                 
+833c: bd 6f 05                     lda     Entity_PosX_HiBit,X     
 833f: 8d 96 03                     sta     $0396                   
-8342: bd 3d 05                     lda     $053d,X                 
+8342: bd 3d 05                     lda     Entity_PosY_FracMid,X   
 8345: 18                           clc                             
 8346: 69 04                        adc     #$04                    
 8348: 8d 9a 03                     sta     $039a                   
-834b: bd 24 05                     lda     $0524,X                 
+834b: bd 24 05                     lda     Entity_PosY_HiBit,X     
 834e: 8d 99 03                     sta     $0399                   
 8351: ad 99 03                     lda     $0399                   
 8354: 85 ce                        sta     $ce                     
@@ -3147,66 +3153,66 @@ b045: 4c 4b b0                     jmp     <a href="#L_b04b">L_b04b</a>
 b048: 20 7a af     <span id="L_b048">L_b048</span>          jsr     <a href="#L_af7a">L_af7a</a>                  
 b04b: 18           <span id="L_b04b">L_b04b</span>          clc                             
 b04c: ad 9b 03                     lda     $039b                   
-b04f: 7d 56 05                     adc     $0556,X                 
-b052: 9d 56 05                     sta     $0556,X                 
+b04f: 7d 56 05                     adc     Entity_PosY_FracLo,X    
+b052: 9d 56 05                     sta     Entity_PosY_FracLo,X    
 b055: ad 9a 03                     lda     $039a                   
-b058: 7d 3d 05                     adc     $053d,X                 
-b05b: 9d 3d 05                     sta     $053d,X                 
+b058: 7d 3d 05                     adc     Entity_PosY_FracMid,X   
+b05b: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
 b05e: ad 99 03                     lda     $0399                   
-b061: 7d 24 05                     adc     $0524,X                 
+b061: 7d 24 05                     adc     Entity_PosY_HiBit,X     
 b064: 8d 99 03                     sta     $0399                   
-b067: dd 24 05                     cmp     $0524,X                 
+b067: dd 24 05                     cmp     Entity_PosY_HiBit,X     
 b06a: f0 0c                        beq     <a href="#L_b078">L_b078</a>                  
 b06c: 38                           sec                             
-b06d: bd 3d 05                     lda     $053d,X                 
+b06d: bd 3d 05                     lda     Entity_PosY_FracMid,X   
 b070: e9 10                        sbc     #$10                    
-b072: 9d 3d 05                     sta     $053d,X                 
+b072: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
 b075: 4c 87 b0                     jmp     <a href="#L_b087">L_b087</a>                  
-b078: bd 3d 05     <span id="L_b078">L_b078</span>          lda     $053d,X                 
+b078: bd 3d 05     <span id="L_b078">L_b078</span>          lda     Entity_PosY_FracMid,X   
 b07b: c9 f0                        cmp     #$f0                    
 b07d: 90 08                        bcc     <a href="#L_b087">L_b087</a>                  
 b07f: 69 10                        adc     #$10                    
-b081: 9d 3d 05                     sta     $053d,X                 
+b081: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
 b084: ee 99 03                     inc     $0399                   
 b087: ad 99 03     <span id="L_b087">L_b087</span>          lda     $0399                   
 b08a: 29 01                        and     #$01                    
-b08c: 9d 24 05                     sta     $0524,X                 
+b08c: 9d 24 05                     sta     Entity_PosY_HiBit,X     
 b08f: ad 98 03                     lda     $0398                   
 b092: 18                           clc                             
-b093: 7d a1 05                     adc     $05a1,X                 
-b096: 9d a1 05                     sta     $05a1,X                 
+b093: 7d a1 05                     adc     Entity_PosX_FracLo,X    
+b096: 9d a1 05                     sta     Entity_PosX_FracLo,X    
 b099: ad 97 03                     lda     $0397                   
-b09c: 7d 88 05                     adc     $0588,X                 
-b09f: 9d 88 05                     sta     $0588,X                 
+b09c: 7d 88 05                     adc     Entity_PosX_FracMid,X   
+b09f: 9d 88 05                     sta     Entity_PosX_FracMid,X   
 b0a2: ad 96 03                     lda     $0396                   
-b0a5: 7d 6f 05                     adc     $056f,X                 
+b0a5: 7d 6f 05                     adc     Entity_PosX_HiBit,X     
 b0a8: 29 01                        and     #$01                    
-b0aa: 9d 6f 05                     sta     $056f,X                 
+b0aa: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
 b0ad: a4 87                        ldy     PPU_WriteCount          
 b0af: 60                           rts                             
 b0b0: bd a1 05 8d ..                .byte   $bd, $a1, $05, $8d, $92, $03, $bd, $56
 b0b8: 05 8d 95 03                  .byte   $05, $8d, $95, $03
-b0bc: bd 88 05     <span id="L_b0bc">L_b0bc</span>          lda     $0588,X                 
+b0bc: bd 88 05     <span id="L_b0bc">L_b0bc</span>          lda     Entity_PosX_FracMid,X   
 b0bf: 8d 91 03                     sta     $0391                   
-b0c2: bd 6f 05                     lda     $056f,X                 
+b0c2: bd 6f 05                     lda     Entity_PosX_HiBit,X     
 b0c5: 29 01                        and     #$01                    
 b0c7: 8d 90 03                     sta     $0390                   
-b0ca: bd 3d 05                     lda     $053d,X                 
+b0ca: bd 3d 05                     lda     Entity_PosY_FracMid,X   
 b0cd: 8d 94 03                     sta     $0394                   
-b0d0: bd 24 05                     lda     $0524,X                 
+b0d0: bd 24 05                     lda     Entity_PosY_HiBit,X     
 b0d3: 29 01                        and     #$01                    
 b0d5: 8d 93 03                     sta     $0393                   
 b0d8: 60                           rts                             
 b0d9: b9 56 05 8d ..                .byte   $b9, $56, $05, $8d, $9b, $03, $b9, $a1
 b0e1: 05 8d 98 03                  .byte   $05, $8d, $98, $03
-b0e5: b9 88 05     <span id="L_b0e5">L_b0e5</span>          lda     $0588,Y                 
+b0e5: b9 88 05     <span id="L_b0e5">L_b0e5</span>          lda     Entity_PosX_FracMid,Y   
 b0e8: 8d 97 03                     sta     $0397                   
-b0eb: b9 6f 05                     lda     $056f,Y                 
+b0eb: b9 6f 05                     lda     Entity_PosX_HiBit,Y     
 b0ee: 29 01                        and     #$01                    
 b0f0: 8d 96 03                     sta     $0396                   
-b0f3: b9 3d 05                     lda     $053d,Y                 
+b0f3: b9 3d 05                     lda     Entity_PosY_FracMid,Y   
 b0f6: 8d 9a 03                     sta     $039a                   
-b0f9: b9 24 05                     lda     $0524,Y                 
+b0f9: b9 24 05                     lda     Entity_PosY_HiBit,Y     
 b0fc: 29 01                        and     #$01                    
 b0fe: 8d 99 03                     sta     $0399                   
 b101: 60                           rts                             
@@ -3261,37 +3267,37 @@ b182: 29 01                        and     #$01
 b184: 8d 99 03                     sta     $0399                   
 b187: 60                           rts                             
 b188: ad 9a 03     <span id="L_b188">L_b188</span>          lda     $039a                   
-b18b: 9d 3d 05                     sta     $053d,X                 
+b18b: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
 b18e: ad 99 03                     lda     $0399                   
 b191: 29 01                        and     #$01                    
-b193: 9d 24 05                     sta     $0524,X                 
+b193: 9d 24 05                     sta     Entity_PosY_HiBit,X     
 b196: ad 97 03                     lda     $0397                   
-b199: 9d 88 05                     sta     $0588,X                 
+b199: 9d 88 05                     sta     Entity_PosX_FracMid,X   
 b19c: ad 96 03                     lda     $0396                   
 b19f: 29 01                        and     #$01                    
-b1a1: 9d 6f 05                     sta     $056f,X                 
+b1a1: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
 b1a4: 60                           rts                             
-b1a5: bd 56 05     <span id="L_b1a5">L_b1a5</span>          lda     $0556,X                 
-b1a8: 99 56 05                     sta     $0556,Y                 
-b1ab: bd 3d 05                     lda     $053d,X                 
-b1ae: 99 3d 05                     sta     $053d,Y                 
-b1b1: bd 24 05                     lda     $0524,X                 
+b1a5: bd 56 05     <span id="L_b1a5">L_b1a5</span>          lda     Entity_PosY_FracLo,X    
+b1a8: 99 56 05                     sta     Entity_PosY_FracLo,Y    
+b1ab: bd 3d 05                     lda     Entity_PosY_FracMid,X   
+b1ae: 99 3d 05                     sta     Entity_PosY_FracMid,Y   
+b1b1: bd 24 05                     lda     Entity_PosY_HiBit,X     
 b1b4: 29 01                        and     #$01                    
-b1b6: 99 24 05                     sta     $0524,Y                 
-b1b9: bd a1 05                     lda     $05a1,X                 
-b1bc: 99 a1 05                     sta     $05a1,Y                 
-b1bf: bd 88 05                     lda     $0588,X                 
-b1c2: 99 88 05                     sta     $0588,Y                 
-b1c5: bd 6f 05                     lda     $056f,X                 
+b1b6: 99 24 05                     sta     Entity_PosY_HiBit,Y     
+b1b9: bd a1 05                     lda     Entity_PosX_FracLo,X    
+b1bc: 99 a1 05                     sta     Entity_PosX_FracLo,Y    
+b1bf: bd 88 05                     lda     Entity_PosX_FracMid,X   
+b1c2: 99 88 05                     sta     Entity_PosX_FracMid,Y   
+b1c5: bd 6f 05                     lda     Entity_PosX_HiBit,X     
 b1c8: 29 01                        and     #$01                    
-b1ca: 99 6f 05                     sta     $056f,Y                 
+b1ca: 99 6f 05                     sta     Entity_PosX_HiBit,Y     
 b1cd: 60                           rts                             
 b1ce: 20 e5 b0 20 ..                .byte   $20, $e5, $b0, $20, $bc, $b0, $4c, $1f
 b1d6: b1                           .byte   $b1
 b1d7: 20 bc b0     <span id="L_b1d7">L_b1d7</span>          jsr     <a href="#L_b0bc">L_b0bc</a>                  
 b1da: 20 6f b1                     jsr     <a href="#L_b16f">L_b16f</a>                  
 b1dd: 20 1f b1                     jsr     <a href="#L_b11f">L_b11f</a>                  
-b1e0: bd 24 05                     lda     $0524,X                 
+b1e0: bd 24 05                     lda     Entity_PosY_HiBit,X     
 b1e3: f0 09                        beq     <a href="#L_b1ee">L_b1ee</a>                  
 b1e5: ad 9a 03                     lda     $039a                   
 b1e8: 38                           sec                             
@@ -3354,9 +3360,9 @@ b35b: 00 00 00 01 ..                .byte   $00, $00, $00, $01, $9f, $ff, $ec, $
 b363: 4b ff b5 00 ..                .byte   $4b, $ff, $b5, $00, $14, $ff, $61, $00
 b36b: 00 ff 00 00 ..                .byte   $00, $ff, $00, $00, $14, $ff, $9f, $ff
 b373: 4b ff 4b ff ..                .byte   $4b, $ff, $4b, $ff, $9f, $ff, $14, $ff
-b37b: bd 6f 05     <span id="L_b37b">L_b37b</span>          lda     $056f,X                 
+b37b: bd 6f 05     <span id="L_b37b">L_b37b</span>          lda     Entity_PosX_HiBit,X     
 b37e: f0 0e                        beq     <a href="#L_b38e">L_b38e</a>                  
-b380: bd 88 05                     lda     $0588,X                 
+b380: bd 88 05                     lda     Entity_PosX_FracMid,X   
 b383: c9 c1                        cmp     #$c1                    
 b385: b0 42                        bcs     <a href="#L_b3c9">L_b3c9</a>                  
 b387: c9 81                        cmp     #$81                    
@@ -3364,15 +3370,15 @@ b389: b0 35                        bcs     <a href="#L_b3c0">L_b3c0</a>
 b38b: 4c 99 b3                     jmp     <a href="#L_b399">L_b399</a>                  
 b38e: bd 88 05 c9 ..<span id="D_b38e">D_b38e</span>          .byte   $bd, $88, $05, $c9, $40, $90, $34, $c9
 b396: 80 90 27                     .byte   $80, $90, $27
-b399: bd 24 05     <span id="L_b399">L_b399</span>          lda     $0524,X                 
+b399: bd 24 05     <span id="L_b399">L_b399</span>          lda     Entity_PosY_HiBit,X     
 b39c: f0 0e                        beq     <a href="#L_b3ac">L_b3ac</a>                  
-b39e: bd 3d 05                     lda     $053d,X                 
+b39e: bd 3d 05                     lda     Entity_PosY_FracMid,X   
 b3a1: c9 b1                        cmp     #$b1                    
 b3a3: b0 24                        bcs     <a href="#L_b3c9">L_b3c9</a>                  
 b3a5: c9 71                        cmp     #$71                    
 b3a7: b0 17                        bcs     <a href="#L_b3c0">L_b3c0</a>                  
 b3a9: 4c b7 b3                     jmp     <a href="#L_b3b7">L_b3b7</a>                  
-b3ac: bd 3d 05     <span id="L_b3ac">L_b3ac</span>          lda     $053d,X                 
+b3ac: bd 3d 05     <span id="L_b3ac">L_b3ac</span>          lda     Entity_PosY_FracMid,X   
 b3af: c9 30                        cmp     #$30                    
 b3b1: 90 16                        bcc     <a href="#L_b3c9">L_b3c9</a>                  
 b3b3: c9 70                        cmp     #$70                    
@@ -3565,16 +3571,16 @@ b594: 0a                           asl     A
 b595: 0a                           asl     A                       
 b596: a8                           tay                             
 b597: b9 57 b6                     lda     $b657,Y                 
-b59a: 9d 6f 05                     sta     $056f,X                 
+b59a: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
 b59d: c8                           iny                             
 b59e: b9 57 b6                     lda     $b657,Y                 
-b5a1: 9d 88 05                     sta     $0588,X                 
+b5a1: 9d 88 05                     sta     Entity_PosX_FracMid,X   
 b5a4: c8                           iny                             
 b5a5: b9 57 b6                     lda     $b657,Y                 
-b5a8: 9d 24 05                     sta     $0524,X                 
+b5a8: 9d 24 05                     sta     Entity_PosY_HiBit,X     
 b5ab: c8                           iny                             
 b5ac: b9 57 b6                     lda     $b657,Y                 
-b5af: 9d 3d 05                     sta     $053d,X                 
+b5af: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
 b5b2: a9 02                        lda     #$02                    
 b5b4: 9d f2 04                     sta     $04f2,X                 
 b5b7: a9 01                        lda     #$01                    
@@ -4941,12 +4947,12 @@ c335: 9d 0b 05                     sta     Entity_Direction,X
 c338: 9d ba 05                     sta     $05ba,X                 
 c33b: 9d c0 04                     sta     Entity_X,X              
 c33e: 9d a7 04                     sta     Entity_Y,X              
-c341: 9d 6f 05                     sta     $056f,X                 
-c344: 9d 88 05                     sta     $0588,X                 
-c347: 9d a1 05                     sta     $05a1,X                 
-c34a: 9d 24 05                     sta     $0524,X                 
-c34d: 9d 3d 05                     sta     $053d,X                 
-c350: 9d 56 05                     sta     $0556,X                 
+c341: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
+c344: 9d 88 05                     sta     Entity_PosX_FracMid,X   
+c347: 9d a1 05                     sta     Entity_PosX_FracLo,X    
+c34a: 9d 24 05                     sta     Entity_PosY_HiBit,X     
+c34d: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
+c350: 9d 56 05                     sta     Entity_PosY_FracLo,X    
 c353: 9d ec 05                     sta     $05ec,X                 
 c356: 9d 05 06                     sta     $0605,X                 
 c359: 9d 1e 06                     sta     $061e,X                 
@@ -5544,12 +5550,12 @@ d062: 02 02 02 02 ..                .byte   $02, $02, $02, $02, $02, $02, $02, $
 d06a: a2 00 ad 8e ..                .byte   $a2, $00, $ad, $8e, $04, $09, $08, $09
 d072: 80 8d 8e 04 ..                .byte   $80, $8d, $8e, $04, $a9, $01, $8d, $6f
 d07a: 05 8d 24 05 ..                .byte   $05, $8d, $24, $05, $a9, $02
-d080: 8d 88 05     <span id="L_d080">L_d080</span>          sta     $0588                   
+d080: 8d 88 05     <span id="L_d080">L_d080</span>          sta     Entity_PosX_FracMid     
 d083: a9 50                        lda     #$50                    
-d085: 8d 3d 05                     sta     $053d                   
+d085: 8d 3d 05                     sta     Entity_PosY_FracMid     
 d088: a9 00                        lda     #$00                    
-d08a: 8d a1 05                     sta     $05a1                   
-d08d: 8d 56 05                     sta     $0556                   
+d08a: 8d a1 05                     sta     Entity_PosX_FracLo      
+d08d: 8d 56 05                     sta     Entity_PosY_FracLo      
 d090: a9 03                        lda     #$03                    
 d092: 8d f2 04                     sta     $04f2                   
 d095: ad bc 07                     lda     TwoPlayer_Mode          
@@ -5632,15 +5638,15 @@ d15d: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queu
 d160: a9 16                        lda     #$16                    
 d162: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d165: a9 01                        lda     #$01                    
-d167: 8d 6f 05                     sta     $056f                   
-d16a: 8d 24 05                     sta     $0524                   
+d167: 8d 6f 05                     sta     Entity_PosX_HiBit       
+d16a: 8d 24 05                     sta     Entity_PosY_HiBit       
 d16d: a9 02                        lda     #$02                    
-d16f: 8d 88 05                     sta     $0588                   
+d16f: 8d 88 05                     sta     Entity_PosX_FracMid     
 d172: a9 30                        lda     #$30                    
-d174: 8d 3d 05                     sta     $053d                   
+d174: 8d 3d 05                     sta     Entity_PosY_FracMid     
 d177: a9 00                        lda     #$00                    
-d179: 8d a1 05                     sta     $05a1                   
-d17c: 8d 56 05                     sta     $0556                   
+d179: 8d a1 05                     sta     Entity_PosX_FracLo      
+d17c: 8d 56 05                     sta     Entity_PosY_FracLo      
 d17f: a9 00                        lda     #$00                    
 d181: 8d d9 04                     sta     $04d9                   
 d184: a9 14                        lda     #$14                    
@@ -5677,10 +5683,10 @@ d1ea: 04 29 02 f0 ..                .byte   $04, $29, $02, $f0, $03, $4c, $98, $
 d1f2: bd 8e 04 29 ..                .byte   $bd, $8e, $04, $29, $04, $f0, $03, $4c
 d1fa: b7 d6                        .byte   $b7, $d6
 d1fc: 20 5b d2     <span id="D_d1fc">D_d1fc</span>          .byte   $20, $5b, $d2
-d1ff: ad 3d 05     <span id="L_d1ff">L_d1ff</span>          lda     $053d                   
-d202: 9d 3d 05                     sta     $053d,X                 
-d205: ad 24 05                     lda     $0524                   
-d208: 9d 24 05                     sta     $0524,X                 
+d1ff: ad 3d 05     <span id="L_d1ff">L_d1ff</span>          lda     Entity_PosY_FracMid     
+d202: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
+d205: ad 24 05                     lda     Entity_PosY_HiBit       
+d208: 9d 24 05                     sta     Entity_PosY_HiBit,X     
 d20b: 20 d7 b1                     jsr     <a href="#L_b1d7">L_b1d7</a>                  
 d20e: 20 7b b3                     jsr     <a href="#L_b37b">L_b37b</a>                  
 d211: 4c b5 d1                     jmp     <a href="#L_d1b5">L_d1b5</a>                  
@@ -5703,27 +5709,27 @@ d25e: 29 80                        and     #$80
 d260: f0 47                        beq     <a href="#L_d2a9">L_d2a9</a>                  
 d262: e0 01                        cpx     #$01                    
 d264: d0 23                        bne     <a href="#L_d289">L_d289</a>                  
-d266: ad 88 05                     lda     $0588                   
+d266: ad 88 05                     lda     Entity_PosX_FracMid     
 d269: 38                           sec                             
 d26a: e9 15                        sbc     #$15                    
 d26c: b0 0f                        bcs     <a href="#L_d27d">L_d27d</a>                  
-d26e: 9d 88 05                     sta     $0588,X                 
-d271: ad 6f 05                     lda     $056f                   
+d26e: 9d 88 05                     sta     Entity_PosX_FracMid,X   
+d271: ad 6f 05                     lda     Entity_PosX_HiBit       
 d274: 38                           sec                             
 d275: e9 01                        sbc     #$01                    
-d277: 9d 6f 05                     sta     $056f,X                 
+d277: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
 d27a: 4c a9 d2                     jmp     <a href="#L_d2a9">L_d2a9</a>                  
 d27d: 9d 88 05 ad ..<span id="D_d27d">D_d27d</span>          .byte   $9d, $88, $05, $ad, $6f, $05, $9d, $6f
 d285: 05 4c a9 d2                  .byte   $05, $4c, $a9, $d2
-d289: ad 88 05     <span id="L_d289">L_d289</span>          lda     $0588                   
+d289: ad 88 05     <span id="L_d289">L_d289</span>          lda     Entity_PosX_FracMid     
 d28c: 18                           clc                             
 d28d: 69 15                        adc     #$15                    
 d28f: 90 0f                        bcc     <a href="#L_d2a0">L_d2a0</a>                  
-d291: 9d 88 05                     sta     $0588,X                 
-d294: ad 6f 05                     lda     $056f                   
+d291: 9d 88 05                     sta     Entity_PosX_FracMid,X   
+d294: ad 6f 05                     lda     Entity_PosX_HiBit       
 d297: 18                           clc                             
 d298: 69 01                        adc     #$01                    
-d29a: 9d 6f 05                     sta     $056f,X                 
+d29a: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
 d29d: 4c a9 d2                     jmp     <a href="#L_d2a9">L_d2a9</a>                  
 d2a0: 9d 88 05 ad ..<span id="D_d2a0">D_d2a0</span>          .byte   $9d, $88, $05, $ad, $6f, $05, $9d, $6f
 d2a8: 05                           .byte   $05
@@ -6066,9 +6072,9 @@ d6b9: d0 06                        bne     <a href="#L_d6c1">L_d6c1</a>
 d6bb: 20 0e d7                     jsr     <a href="#L_d70e">L_d70e</a>                  
 d6be: 4c c4 d6                     jmp     <a href="#L_d6c4">L_d6c4</a>                  
 d6c1: 20 2f d7     <span id="D_d6c1">D_d6c1</span>          .byte   $20, $2f, $d7
-d6c4: ad 3d 05     <span id="L_d6c4">L_d6c4</span>          lda     $053d                   
+d6c4: ad 3d 05     <span id="L_d6c4">L_d6c4</span>          lda     Entity_PosY_FracMid     
 d6c7: 8d 9a 03                     sta     $039a                   
-d6ca: ad 24 05                     lda     $0524                   
+d6ca: ad 24 05                     lda     Entity_PosY_HiBit       
 d6cd: 8d 99 03                     sta     $0399                   
 d6d0: 20 bc b0                     jsr     <a href="#L_b0bc">L_b0bc</a>                  
 d6d3: 20 c9 ad                     jsr     <a href="#L_adc9">L_adc9</a>                  
@@ -6093,12 +6099,12 @@ d703: 9d ba 05                     sta     $05ba,X
 d706: a9 01                        lda     #$01                    
 d708: 9d d9 04                     sta     $04d9,X                 
 d70b: 4c fc d1                     jmp     <a href="#L_d1fc">L_d1fc</a>                  
-d70e: ad 88 05     <span id="L_d70e">L_d70e</span>          lda     $0588                   
+d70e: ad 88 05     <span id="L_d70e">L_d70e</span>          lda     Entity_PosX_FracMid     
 d711: 38                           sec                             
 d712: e9 15                        sbc     #$15                    
 d714: b0 0f                        bcs     <a href="#L_d725">L_d725</a>                  
 d716: 8d 97 03                     sta     $0397                   
-d719: ad 6f 05                     lda     $056f                   
+d719: ad 6f 05                     lda     Entity_PosX_HiBit       
 d71c: 38                           sec                             
 d71d: e9 01                        sbc     #$01                    
 d71f: 29 01                        and     #$01                    
@@ -6106,12 +6112,12 @@ d721: 8d 96 03                     sta     $0396
 d724: 60                           rts                             
 d725: 8d 97 03 ad ..<span id="D_d725">D_d725</span>          .byte   $8d, $97, $03, $ad, $6f, $05, $8d, $96
 d72d: 03 60                        .byte   $03, $60
-d72f: ad 88 05     <span id="L_d72f">L_d72f</span>          lda     $0588                   
+d72f: ad 88 05     <span id="L_d72f">L_d72f</span>          lda     Entity_PosX_FracMid     
 d732: 18                           clc                             
 d733: 69 15                        adc     #$15                    
 d735: 90 0d                        bcc     <a href="#L_d744">L_d744</a>                  
 d737: 8d 97 03                     sta     $0397                   
-d73a: ad 6f 05                     lda     $056f                   
+d73a: ad 6f 05                     lda     Entity_PosX_HiBit       
 d73d: 18                           clc                             
 d73e: 69 01                        adc     #$01                    
 d740: 8d 96 03                     sta     $0396                   
@@ -6130,26 +6136,26 @@ d760: 85 b2                        sta     $b2
 d762: a9 f0                        lda     #$f0                    
 d764: 85 b3                        sta     $b3                     
 d766: 4c 00 aa                     jmp     <a href="#L_aa00">L_aa00</a>                  
-d769: ad 3d 05     <span id="L_d769">L_d769</span>          lda     $053d                   
+d769: ad 3d 05     <span id="L_d769">L_d769</span>          lda     Entity_PosY_FracMid     
 d76c: 38                           sec                             
 d76d: e9 10                        sbc     #$10                    
 d76f: b0 14                        bcs     <a href="#L_d785">L_d785</a>                  
 d771: 38                           sec                             
 d772: e9 10                        sbc     #$10                    
-d774: 99 3d 05                     sta     $053d,Y                 
+d774: 99 3d 05                     sta     Entity_PosY_FracMid,Y   
 d777: 38                           sec                             
-d778: b9 24 05                     lda     $0524,Y                 
+d778: b9 24 05                     lda     Entity_PosY_HiBit,Y     
 d77b: e9 01                        sbc     #$01                    
 d77d: 29 01                        and     #$01                    
-d77f: 99 24 05                     sta     $0524,Y                 
+d77f: 99 24 05                     sta     Entity_PosY_HiBit,Y     
 d782: 4c 8e d7                     jmp     <a href="#L_d78e">L_d78e</a>                  
-d785: 99 3d 05     <span id="L_d785">L_d785</span>          sta     $053d,Y                 
-d788: ad 24 05                     lda     $0524                   
-d78b: 99 24 05                     sta     $0524,Y                 
-d78e: ad 88 05     <span id="L_d78e">L_d78e</span>          lda     $0588                   
-d791: 99 88 05                     sta     $0588,Y                 
-d794: ad 6f 05                     lda     $056f                   
-d797: 99 6f 05                     sta     $056f,Y                 
+d785: 99 3d 05     <span id="L_d785">L_d785</span>          sta     Entity_PosY_FracMid,Y   
+d788: ad 24 05                     lda     Entity_PosY_HiBit       
+d78b: 99 24 05                     sta     Entity_PosY_HiBit,Y     
+d78e: ad 88 05     <span id="L_d78e">L_d78e</span>          lda     Entity_PosX_FracMid     
+d791: 99 88 05                     sta     Entity_PosX_FracMid,Y   
+d794: ad 6f 05                     lda     Entity_PosX_HiBit       
+d797: 99 6f 05                     sta     Entity_PosX_HiBit,Y     
 d79a: 60                           rts                             
 d79b: ad 37 04 c9 ..                .byte   $ad, $37, $04, $c9, $ff, $60
 d7a1: a9 ff        <span id="Death_Sequence">Death_Sequence</span>  lda     #$ff                    
@@ -6619,21 +6625,21 @@ dbc1: ad 90 04                     lda     $0490
 dbc4: 30 3b                        bmi     <a href="#LifeLoss_Reset_07c5">LifeLoss_Reset_07c5</a>     
 dbc6: a0 01                        ldy     #$01                    
 dbc8: a9 00                        lda     #$00                    
-dbca: 99 6f 05                     sta     $056f,Y                 
+dbca: 99 6f 05                     sta     Entity_PosX_HiBit,Y     
 dbcd: a9 e0                        lda     #$e0                    
-dbcf: 99 88 05                     sta     $0588,Y                 
+dbcf: 99 88 05                     sta     Entity_PosX_FracMid,Y   
 dbd2: c8                           iny                             
 dbd3: a9 01                        lda     #$01                    
-dbd5: 99 6f 05                     sta     $056f,Y                 
+dbd5: 99 6f 05                     sta     Entity_PosX_HiBit,Y     
 dbd8: a9 20                        lda     #$20                    
-dbda: 99 88 05                     sta     $0588,Y                 
+dbda: 99 88 05                     sta     Entity_PosX_FracMid,Y   
 dbdd: 88                           dey                             
 dbde: a9 0a        <span id="L_dbde">L_dbde</span>          lda     #$0a                    
 dbe0: 99 8e 04                     sta     Entity_Active,Y         
 dbe3: a9 50                        lda     #$50                    
-dbe5: 99 3d 05                     sta     $053d,Y                 
+dbe5: 99 3d 05                     sta     Entity_PosY_FracMid,Y   
 dbe8: a9 00                        lda     #$00                    
-dbea: 99 24 05                     sta     $0524,Y                 
+dbea: 99 24 05                     sta     Entity_PosY_HiBit,Y     
 dbed: a9 08                        lda     #$08                    
 dbef: 99 0b 05                     sta     Entity_Direction,Y      
 dbf2: a9 1e                        lda     #$1e                    
@@ -7788,13 +7794,13 @@ edcd: 99 ba 05                     sta     $05ba,Y
 edd0: a9 ff                        lda     #$ff                    
 edd2: 99 9b 06                     sta     $069b,Y                 
 edd5: a5 b0                        lda     $b0                     
-edd7: 99 6f 05                     sta     $056f,Y                 
+edd7: 99 6f 05                     sta     Entity_PosX_HiBit,Y     
 edda: a5 b1                        lda     $b1                     
-eddc: 99 88 05                     sta     $0588,Y                 
-eddf: bd 3d 05                     lda     $053d,X                 
-ede2: 99 3d 05                     sta     $053d,Y                 
-ede5: bd 24 05                     lda     $0524,X                 
-ede8: 99 24 05                     sta     $0524,Y                 
+eddc: 99 88 05                     sta     Entity_PosX_FracMid,Y   
+eddf: bd 3d 05                     lda     Entity_PosY_FracMid,X   
+ede2: 99 3d 05                     sta     Entity_PosY_FracMid,Y   
+ede5: bd 24 05                     lda     Entity_PosY_HiBit,X     
+ede8: 99 24 05                     sta     Entity_PosY_HiBit,Y     
 edeb: 98                           tya                             
 edec: 38                           sec                             
 eded: e9 0d                        sbc     #$0d                    
@@ -7995,16 +8001,16 @@ f05a: 0a                           asl     A
 f05b: a8                           tay                             
 f05c: ee 1f 07                     inc     Spawn_PatternIndex      
 f05f: b9 2e f1                     lda     $f12e,Y                 
-f062: 9d 6f 05                     sta     $056f,X                 
+f062: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
 f065: c8                           iny                             
 f066: b9 2e f1                     lda     $f12e,Y                 
-f069: 9d 88 05                     sta     $0588,X                 
+f069: 9d 88 05                     sta     Entity_PosX_FracMid,X   
 f06c: c8                           iny                             
 f06d: b9 2e f1                     lda     $f12e,Y                 
-f070: 9d 24 05                     sta     $0524,X                 
+f070: 9d 24 05                     sta     Entity_PosY_HiBit,X     
 f073: c8                           iny                             
 f074: b9 2e f1                     lda     $f12e,Y                 
-f077: 9d 3d 05                     sta     $053d,X                 
+f077: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
 f07a: a9 14                        lda     #$14                    
 f07c: 9d d9 04                     sta     $04d9,X                 
 f07f: 20 bc b0                     jsr     <a href="#L_b0bc">L_b0bc</a>                  
@@ -8077,19 +8083,19 @@ f17c: 0a                           asl     A
 f17d: a8                           tay                             
 f17e: ee 1f 07                     inc     Spawn_PatternIndex      
 f181: b9 ec f3                     lda     $f3ec,Y                 
-f184: 9d 6f 05                     sta     $056f,X                 
+f184: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
 f187: c8                           iny                             
 f188: b9 ec f3                     lda     $f3ec,Y                 
-f18b: 9d 88 05                     sta     $0588,X                 
+f18b: 9d 88 05                     sta     Entity_PosX_FracMid,X   
 f18e: c8                           iny                             
 f18f: b9 ec f3                     lda     $f3ec,Y                 
-f192: 9d 24 05                     sta     $0524,X                 
+f192: 9d 24 05                     sta     Entity_PosY_HiBit,X     
 f195: c8                           iny                             
 f196: b9 ec f3                     lda     $f3ec,Y                 
-f199: 9d 3d 05                     sta     $053d,X                 
-f19c: ad 6f 05     <span id="L_f19c">L_f19c</span>          lda     $056f                   
+f199: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
+f19c: ad 6f 05     <span id="L_f19c">L_f19c</span>          lda     Entity_PosX_HiBit       
 f19f: f0 0a                        beq     <a href="#L_f1ab">L_f1ab</a>                  
-f1a1: ad 24 05                     lda     $0524                   
+f1a1: ad 24 05                     lda     Entity_PosY_HiBit       
 f1a4: f0 0f                        beq     <a href="#L_f1b5">L_f1b5</a>                  
 f1a6: a9 60                        lda     #$60                    
 f1a8: 4c bc f1                     jmp     <a href="#L_f1bc">L_f1bc</a>                  
@@ -8253,17 +8259,17 @@ f352: 0a                           asl     A
 f353: a8                           tay                             
 f354: ee 1f 07                     inc     Spawn_PatternIndex      
 f357: b9 ec f3                     lda     $f3ec,Y                 
-f35a: 9d 6f 05                     sta     $056f,X                 
+f35a: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
 f35d: c8                           iny                             
 f35e: b9 ec f3                     lda     $f3ec,Y                 
-f361: 9d 88 05                     sta     $0588,X                 
+f361: 9d 88 05                     sta     Entity_PosX_FracMid,X   
 f364: c8                           iny                             
 f365: b9 ec f3                     lda     $f3ec,Y                 
-f368: 9d 24 05                     sta     $0524,X                 
+f368: 9d 24 05                     sta     Entity_PosY_HiBit,X     
 f36b: c8                           iny                             
 f36c: b9 ec f3                     lda     $f3ec,Y                 
-f36f: 9d 3d 05                     sta     $053d,X                 
-f372: bd 6f 05                     lda     $056f,X                 
+f36f: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
+f372: bd 6f 05                     lda     Entity_PosX_HiBit,X     
 f375: c9 01                        cmp     #$01                    
 f377: f0 05                        beq     <a href="#L_f37e">L_f37e</a>                  
 f379: a9 0c                        lda     #$0c                    
@@ -8331,16 +8337,16 @@ f432: 0a                           asl     A
 f433: a8                           tay                             
 f434: ee 1f 07                     inc     Spawn_PatternIndex      
 f437: b9 50 f5                     lda     $f550,Y                 
-f43a: 9d 6f 05                     sta     $056f,X                 
+f43a: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
 f43d: c8                           iny                             
 f43e: b9 50 f5                     lda     $f550,Y                 
-f441: 9d 88 05                     sta     $0588,X                 
+f441: 9d 88 05                     sta     Entity_PosX_FracMid,X   
 f444: c8                           iny                             
 f445: b9 50 f5                     lda     $f550,Y                 
-f448: 9d 24 05                     sta     $0524,X                 
+f448: 9d 24 05                     sta     Entity_PosY_HiBit,X     
 f44b: c8                           iny                             
 f44c: b9 50 f5                     lda     $f550,Y                 
-f44f: 9d 3d 05                     sta     $053d,X                 
+f44f: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
 f452: a9 08                        lda     #$08                    
 f454: 9d 0b 05                     sta     Entity_Direction,X      
 f457: a9 14        <span id="L_f457">L_f457</span>          lda     #$14                    
@@ -8436,16 +8442,16 @@ f570: a9 ff        <span id="L_f570">L_f570</span>          lda     #$ff
 f572: 9d 9b 06                     sta     $069b,X                 
 f575: 20 d1 f6                     jsr     <a href="#L_f6d1">L_f6d1</a>                  
 f578: b1 8a                        lda     ($8a),Y                 
-f57a: 9d 6f 05                     sta     $056f,X                 
+f57a: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
 f57d: c8                           iny                             
 f57e: b1 8a                        lda     ($8a),Y                 
-f580: 9d 88 05                     sta     $0588,X                 
+f580: 9d 88 05                     sta     Entity_PosX_FracMid,X   
 f583: c8                           iny                             
 f584: b1 8a                        lda     ($8a),Y                 
-f586: 9d 24 05                     sta     $0524,X                 
+f586: 9d 24 05                     sta     Entity_PosY_HiBit,X     
 f589: c8                           iny                             
 f58a: b1 8a                        lda     ($8a),Y                 
-f58c: 9d 3d 05                     sta     $053d,X                 
+f58c: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
 f58f: c8                           iny                             
 f590: bd 82 06                     lda     $0682,X                 
 f593: 18                           clc                             
@@ -8587,28 +8593,28 @@ f6f5: ad c0 04                     lda     Entity_X
 f6f8: c9 80                        cmp     #$80                    
 f6fa: b0 0d                        bcs     <a href="#L_f709">L_f709</a>                  
 f6fc: a9 00                        lda     #$00                    
-f6fe: 9d 6f 05                     sta     $056f,X                 
+f6fe: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
 f701: a9 c0                        lda     #$c0                    
-f703: 9d 88 05                     sta     $0588,X                 
+f703: 9d 88 05                     sta     Entity_PosX_FracMid,X   
 f706: 4c 13 f7                     jmp     <a href="#L_f713">L_f713</a>                  
 f709: a9 01 9d 6f ..<span id="D_f709">D_f709</span>          .byte   $a9, $01, $9d, $6f, $05, $a9, $40, $9d
 f711: 88 05                        .byte   $88, $05
 f713: 20 d1 f6     <span id="L_f713">L_f713</span>          jsr     <a href="#L_f6d1">L_f6d1</a>                  
 f716: a0 02                        ldy     #$02                    
 f718: b1 8a                        lda     ($8a),Y                 
-f71a: 9d 24 05                     sta     $0524,X                 
+f71a: 9d 24 05                     sta     Entity_PosY_HiBit,X     
 f71d: c8                           iny                             
 f71e: b1 8a                        lda     ($8a),Y                 
-f720: 9d 3d 05                     sta     $053d,X                 
+f720: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
 f723: a0 06                        ldy     #$06                    
 f725: b1 8a                        lda     ($8a),Y                 
 f727: 9d 37 06                     sta     $0637,X                 
 f72a: c8                           iny                             
 f72b: b1 8a                        lda     ($8a),Y                 
 f72d: 9d 50 06                     sta     $0650,X                 
-f730: bd 6f 05                     lda     $056f,X                 
+f730: bd 6f 05                     lda     Entity_PosX_HiBit,X     
 f733: 9d 05 06                     sta     $0605,X                 
-f736: bd 88 05                     lda     $0588,X                 
+f736: bd 88 05                     lda     Entity_PosX_FracMid,X   
 f739: 9d 1e 06                     sta     $061e,X                 
 f73c: a9 08                        lda     #$08                    
 f73e: 9d 82 06                     sta     $0682,X                 
@@ -8988,14 +8994,14 @@ face: a5 b0        <span id="L_face">L_face</span>          lda     $b0
 fad0: 99 0b 05                     sta     Entity_Direction,Y      
 fad3: a9 14                        lda     #$14                    
 fad5: 99 ba 05                     sta     $05ba,Y                 
-fad8: bd 88 05                     lda     $0588,X                 
-fadb: 99 88 05                     sta     $0588,Y                 
-fade: bd 6f 05                     lda     $056f,X                 
-fae1: 99 6f 05                     sta     $056f,Y                 
-fae4: bd 3d 05                     lda     $053d,X                 
-fae7: 99 3d 05                     sta     $053d,Y                 
-faea: bd 24 05                     lda     $0524,X                 
-faed: 99 24 05                     sta     $0524,Y                 
+fad8: bd 88 05                     lda     Entity_PosX_FracMid,X   
+fadb: 99 88 05                     sta     Entity_PosX_FracMid,Y   
+fade: bd 6f 05                     lda     Entity_PosX_HiBit,X     
+fae1: 99 6f 05                     sta     Entity_PosX_HiBit,Y     
+fae4: bd 3d 05                     lda     Entity_PosY_FracMid,X   
+fae7: 99 3d 05                     sta     Entity_PosY_FracMid,Y   
+faea: bd 24 05                     lda     Entity_PosY_HiBit,X     
+faed: 99 24 05                     sta     Entity_PosY_HiBit,Y     
 faf0: a9 01                        lda     #$01                    
 faf2: 99 f2 04                     sta     $04f2,Y                 
 faf5: a9 88                        lda     #$88                    
@@ -9099,14 +9105,14 @@ fbbe: a5 b0        <span id="L_fbbe">L_fbbe</span>          lda     $b0
 fbc0: 99 0b 05                     sta     Entity_Direction,Y      
 fbc3: a9 14                        lda     #$14                    
 fbc5: 99 ba 05                     sta     $05ba,Y                 
-fbc8: bd 88 05                     lda     $0588,X                 
-fbcb: 99 88 05                     sta     $0588,Y                 
-fbce: bd 6f 05                     lda     $056f,X                 
-fbd1: 99 6f 05                     sta     $056f,Y                 
-fbd4: bd 3d 05                     lda     $053d,X                 
-fbd7: 99 3d 05                     sta     $053d,Y                 
-fbda: bd 24 05                     lda     $0524,X                 
-fbdd: 99 24 05                     sta     $0524,Y                 
+fbc8: bd 88 05                     lda     Entity_PosX_FracMid,X   
+fbcb: 99 88 05                     sta     Entity_PosX_FracMid,Y   
+fbce: bd 6f 05                     lda     Entity_PosX_HiBit,X     
+fbd1: 99 6f 05                     sta     Entity_PosX_HiBit,Y     
+fbd4: bd 3d 05                     lda     Entity_PosY_FracMid,X   
+fbd7: 99 3d 05                     sta     Entity_PosY_FracMid,Y   
+fbda: bd 24 05                     lda     Entity_PosY_HiBit,X     
+fbdd: 99 24 05                     sta     Entity_PosY_HiBit,Y     
 fbe0: a9 01                        lda     #$01                    
 fbe2: 99 f2 04                     sta     $04f2,Y                 
 fbe5: a9 88                        lda     #$88                    
@@ -9114,28 +9120,28 @@ fbe7: 99 8e 04                     sta     Entity_Active,Y
 fbea: bd d3 05                     lda     $05d3,X                 
 fbed: c9 ff                        cmp     #$ff                    
 fbef: d0 36                        bne     <a href="#L_fc27">L_fc27</a>                  
-fbf1: b9 88 05                     lda     $0588,Y                 
+fbf1: b9 88 05                     lda     Entity_PosX_FracMid,Y   
 fbf4: 38                           sec                             
 fbf5: e9 07                        sbc     #$07                    
-fbf7: 99 88 05                     sta     $0588,Y                 
-fbfa: b9 6f 05                     lda     $056f,Y                 
+fbf7: 99 88 05                     sta     Entity_PosX_FracMid,Y   
+fbfa: b9 6f 05                     lda     Entity_PosX_HiBit,Y     
 fbfd: e9 00                        sbc     #$00                    
-fbff: 99 6f 05                     sta     $056f,Y                 
+fbff: 99 6f 05                     sta     Entity_PosX_HiBit,Y     
 fc02: ad a0 03                     lda     ScrollY_Target          
 fc05: 29 0f                        and     #$0f                    
 fc07: 18                           clc                             
-fc08: 79 88 05                     adc     $0588,Y                 
-fc0b: 99 88 05                     sta     $0588,Y                 
-fc0e: b9 6f 05                     lda     $056f,Y                 
+fc08: 79 88 05                     adc     Entity_PosX_FracMid,Y   
+fc0b: 99 88 05                     sta     Entity_PosX_FracMid,Y   
+fc0e: b9 6f 05                     lda     Entity_PosX_HiBit,Y     
 fc11: 69 00                        adc     #$00                    
-fc13: 99 6f 05                     sta     $056f,Y                 
-fc16: b9 3d 05                     lda     $053d,Y                 
+fc13: 99 6f 05                     sta     Entity_PosX_HiBit,Y     
+fc16: b9 3d 05                     lda     Entity_PosY_FracMid,Y   
 fc19: 18                           clc                             
 fc1a: 69 40                        adc     #$40                    
-fc1c: 99 3d 05                     sta     $053d,Y                 
-fc1f: b9 24 05                     lda     $0524,Y                 
+fc1c: 99 3d 05                     sta     Entity_PosY_FracMid,Y   
+fc1f: b9 24 05                     lda     Entity_PosY_HiBit,Y     
 fc22: 69 00                        adc     #$00                    
-fc24: 99 24 05                     sta     $0524,Y                 
+fc24: 99 24 05                     sta     Entity_PosY_HiBit,Y     
 fc27: ac 1d 07     <span id="L_fc27">L_fc27</span>          ldy     $071d                   
 fc2a: a9 ff                        lda     #$ff                    
 fc2c: 99 0e 07                     sta     $070e,Y                 
