@@ -172,6 +172,92 @@ def _build_long_idle(total_chunks=15, chunk_frames=120):
 
 _long_idle_steps, _long_idle_cps = _build_long_idle()
 
+
+_press_select_steps, _press_select_cps = _ingame([(SELECT, 6), (0, 120)])
+
+
+# Long pre-START idle: stays on the title/attract screen and snapshots
+# every chunk. Reveals title-screen animation counters and the
+# demo/attract-mode trigger countdown — anything that ticks while the
+# player hasn't pressed START yet.
+def _build_idle_titlescreen(total_chunks=10, chunk_frames=150):
+    boot = list(_boot_steps)
+    chunks = [(0, chunk_frames) for _ in range(total_chunks)]
+    steps = boot + chunks
+    cps = [len(boot) - 1]
+    cur = len(boot) - 1
+    for _ in range(total_chunks):
+        cur += 1
+        cps.append(cur)
+    return steps, cps
+
+
+_idle_titlescreen_steps, _idle_titlescreen_cps = _build_idle_titlescreen()
+
+
+# Autofire WITHOUT Infinite Lives genie. Long enough that the player
+# dies once or twice. Snapshot every chunk so we can compare a
+# pre-death checkpoint against the next one across the death event.
+def _build_die_once(total_chunks=10, chunk_frames=300):
+    chunks = []
+    for _ in range(total_chunks):
+        chunks.append((B, 6))
+        chunks.append((0, chunk_frames - 6))
+    settle_step = (0, _INGAME_SETTLE)
+    steps = list(_press_start_steps) + [settle_step] + chunks
+    baseline_idx = len(_press_start_steps)
+    cps = [baseline_idx]
+    cur = baseline_idx
+    for _ in range(total_chunks):
+        cur += 2
+        cps.append(cur)
+    return steps, cps
+
+
+_die_once_steps, _die_once_cps = _build_die_once()
+
+
+# Single fire then idle, snapshotting every short chunk so we can
+# track the bullet (entity slot 11) as it flies up the screen. The
+# attributes that change on each chunk are the bullet's per-frame
+# state (velocity, position, animation, TTL).
+def _build_fire_observe(total_chunks=20, chunk_frames=30):
+    fire = [(B, 6), (0, chunk_frames - 6)]
+    chunks = [(0, chunk_frames) for _ in range(total_chunks - 1)]
+    settle_step = (0, _INGAME_SETTLE)
+    steps = list(_press_start_steps) + [settle_step] + fire + chunks
+    baseline_idx = len(_press_start_steps)
+    cps = [baseline_idx]
+    cur = baseline_idx + 2
+    cps.append(cur)
+    for _ in range(total_chunks - 1):
+        cur += 1
+        cps.append(cur)
+    return steps, cps
+
+
+_fire_observe_steps, _fire_observe_cps = _build_fire_observe()
+
+
+# Long Infinite-Lives idle so enemies spawn and persist on-screen.
+# Snapshot every chunk; look at the entity-table region $048e-$0682
+# to see which SOA attributes the enemy slots (12-24) write.
+def _build_enemy_observe(total_chunks=15, chunk_frames=200):
+    chunks = [(0, chunk_frames) for _ in range(total_chunks)]
+    settle_step = (0, _INGAME_SETTLE)
+    steps = list(_press_start_steps) + [settle_step] + chunks
+    baseline_idx = len(_press_start_steps)
+    cps = [baseline_idx]
+    cur = baseline_idx
+    for _ in range(total_chunks):
+        cur += 1
+        cps.append(cur)
+    return steps, cps
+
+
+_enemy_observe_steps, _enemy_observe_cps = _build_enemy_observe()
+
+
 SCENARIOS = {
     'boot': Scenario(
         name='boot',
@@ -263,6 +349,53 @@ SCENARIOS = {
                      'wave timer) from input-driven state'),
         steps=_long_idle_steps,
         checkpoints=_long_idle_cps,
+    ),
+    'press_select': Scenario(
+        name='press_select',
+        description=('enter game, snapshot, hold SELECT for 6 frames + '
+                     '120 idle. Diff against idle isolates the SELECT '
+                     'handler (bit $20 of Buttons_Held). May reveal a '
+                     'pause flag or HUD-mode toggle'),
+        steps=_press_select_steps,
+        checkpoints=_press_select_cps,
+    ),
+    'idle_titlescreen': Scenario(
+        name='idle_titlescreen',
+        description=('boot, snapshot, then 10 chunks of 150 idle '
+                     'frames WITHOUT pressing START — stays on the '
+                     'attract screen. Reveals title-screen animation '
+                     'counters and the demo/attract-mode timer'),
+        steps=_idle_titlescreen_steps,
+        checkpoints=_idle_titlescreen_cps,
+    ),
+    'die_once': Scenario(
+        name='die_once',
+        description=('autofire WITHOUT Infinite Lives — 10 chunks of '
+                     '~5 seconds each. Player dies a few times. '
+                     'Snapshot every chunk; cross-checkpoint diff '
+                     'reveals death-state bytes and the game-over flag'),
+        steps=_die_once_steps,
+        checkpoints=_die_once_cps,
+    ),
+    'fire_observe': Scenario(
+        name='fire_observe',
+        description=('enter game, snapshot, fire once (B for 6 frames), '
+                     'then 19 chunks of 30 idle frames. Tracks entity '
+                     'slot 11 (the bullet) as it flies up — drift in '
+                     'the SOA attributes for slot 11 reveals bullet '
+                     'velocity, TTL, animation state'),
+        steps=_fire_observe_steps,
+        checkpoints=_fire_observe_cps,
+    ),
+    'enemy_observe': Scenario(
+        name='enemy_observe',
+        description=('enter game with Infinite Lives, then 15 chunks '
+                     'of 200 idle frames. Enemies spawn and persist; '
+                     'drift in $048e-$0682 reveals enemy-side SOA '
+                     'attributes (HP, type, velocity). Pair with '
+                     '--genie SZXLKEVK to keep the player alive'),
+        steps=_enemy_observe_steps,
+        checkpoints=_enemy_observe_cps,
     ),
 }
 
