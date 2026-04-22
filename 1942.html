@@ -91,6 +91,8 @@ PPU_AddrHi   = $0089  ; high byte of PPU destination address; $89:$88 is the ful
 PPU_SrcLo    = $008a  ; low byte of source pointer read by PPU_WriteBlock at STA $2007; zero-page ($8a),Y fetch
 PPU_SrcHi    = $008b  ; high byte of source pointer ($8b:$8a) used by PPU_WriteBlock
 PPUCTRL_Shadow = $008c  ; mirror of last value written to $2000; flipping bit $80 gates NMI and is reapplied across routines
+PPU_ScrollX  = $008f  ; X-scroll shadow written to PPUSCROLL at $c0e7 each NMI tail. Sourced at $80b3 from $039f (mirror in 33-byte player state); also zeroed by level-reset paths at $bcf9 and $bfea
+PPU_ScrollY  = $0090  ; Y-scroll shadow written to PPUSCROLL at $c0ec each NMI tail (the second of the two PPUSCROLL writes that latch X then Y). Sourced at $80b3 from $03a0; cleared by level-reset paths at $bcfb and $bfef. Static during long_idle scenario — the auto-scroll only advances once gameplay action begins
 Joypad1_State = $0098  ; P1 controller raw state this frame (8 bits) populated by Joypad_PollOne for X=0
 Joypad1_NewPress = $0099  ; P1 controller newly-pressed bits this frame (rising edges of Joypad1_State)
 Joypad2_State = $009a  ; P2 controller raw state this frame (populated by Joypad_PollOne for X=1)
@@ -100,6 +102,8 @@ P2_Active    = $0384  ; companion to P1_Active; tested by P1_LifeLost at $b80a t
 P1_Active    = $0385  ; $ff while P1 is the active player; cleared on game-over. Set at $b7da during NewGame_Init_P1
 Active_Player_Index = $0386  ; 0 = P1 currently playing, 1 = P2 currently playing. NewGame_Init_P1 inits to 0; SwapTo_P2 sets to 1, SwapTo_P1 / Restore_P1_NoSave set to 0
 Button_DebounceFlags = $0388  ; per-button 'held last frame' flags consumed by the input dispatchers. bit $10 = B (Fire), set/cleared by Fire_Handler ($d2aa); bit $01 = A (Roll), set/cleared by Roll_Handler at $d214. Each handler does a rising-edge detect against its own bit
+ScrollY_Target = $03a0  ; persistent Y-scroll source in the active player state block. Copied into $0090 each NMI tail at $80b3, then latched into PPUSCROLL
+NametableSelect = $03a1  ; low bit drives PPUCTRL bit 1 (nametable X) at $80b8 — the horizontal scroll-wrap selector. ASL/AND #$02 pattern means bit 0 of this byte toggles which nametable is mapped
 PPU_QueueReady = $03ae  ; nonzero -> NMI_Handler walks the PPU_UpdateQueue. NMI clears it on completion ($c07e); set by the queue builder at $81e2
 Player_OAM_Y = $03af  ; shadow-OAM mirror of Entity_Y[0] (player)
 Player_OAM_X = $03b2  ; shadow-OAM mirror of Entity_X[0] (player), written via DMA
@@ -114,6 +118,10 @@ Lives_Ones   = $0432  ; lives ones digit (starts at 02)
 Rolls        = $0436  ; special rolls remaining (starts at 03)
 Respawn_Count = $0437  ; INC at L_e1e0 each time the player respawns; cleared to 0 by NewGame_Init paths and by debe (post-game-over re-init). Confirmed live: across a 5-death autofire run this byte went 0,0,1,1,2,3,3,4,5 (one increment per death). Tested at >10 sites as a 'have we died yet?' flag (e.g. d09a, d68b — those branches just want nonzero, not the count)
 Level        = $0438  ; current stage (00 = stage 1)
+Spawn_TallyAlt_Lo = $0439  ; low byte of a parallel 16-bit tally incremented at $ee5f in the same code as Spawn_Tally_Lo (two counters bumped together at every spawn). Likely a per-life or per-stage spawn count vs. the $043d running total
+Spawn_TallyAlt_Hi = $043a  ; high byte of the parallel spawn tally; incremented at $ee64 when Spawn_TallyAlt_Lo wraps
+Spawn_Tally_Lo = $043d  ; low byte of a 16-bit running tally incremented at $ee67 (right after the entity-spawn site that does `lda #$88 / sta Entity_Active,X`). Carries into Spawn_Tally_Hi via `bne / inc $043e`. Drift confirms ~1 increment per spawn during idle gameplay
+Spawn_Tally_Hi = $043e  ; high byte of the 16-bit spawn tally; incremented at $ee6c when Spawn_Tally_Lo wraps
 P1_SavedState = $044a  ; 33-byte ($21) save buffer for P1 state while P2 is playing. SwapTo_P2 saves the active block here; SwapTo_P1 / Restore_P1_NoSave load it back into ActivePlayer_State
 P2_SavedState = $046b  ; 33-byte ($21) save buffer for P2 state while P1 is playing. SwapTo_P1 saves the active block here; SwapTo_P2 loads it back into ActivePlayer_State
 PrevDirection_Save = $048d  ; one-frame stash of the previous Entity_Direction. Written by SetEntityDirection ($d593) before it overwrites $050b,X — lets downstream code detect a direction change
@@ -123,6 +131,9 @@ Entity_X     = $04c0  ; entity SOA attribute 2 (horizontal position); 25 slots. 
 Entity_Direction = $050b  ; entity SOA attribute 5 (8-direction code, $0..$e in steps of 2): $00=UP, $02=UP+RIGHT, $04=RIGHT, $06=DOWN+RIGHT, $08=DOWN, $0a=DOWN+LEFT, $0c=LEFT, $0e=UP+LEFT. Set by SetEntityDirection from the dpad handler. Confirmed live: move_left puts $0c into $050b
 Bullet_SpawnPending = $0719  ; $01 written by Spawn_Bullet alongside Bullet_TargetSlot — likely a one-shot 'spawn requested' flag consumed by the entity update pass
 Bullet_TargetSlot = $071a  ; $0b written by Spawn_Bullet — the entity slot index ($0b = 11) where the new bullet is being installed. Read at L_d3c3 to look up Entity_Active,Y
+Spawn_PatternIndex = $071f  ; 8-state rotating index used by the enemy-spawn routine. Read at $f054 / $f176 / $f34c / $f42c (each masks `and #$07`, ASLs twice to get a 4-byte stride, indexes the spawn-parameter table at $f12e to fetch four per-spawn fields), then incremented in place. Drives wave-pattern variety
+HUD_BlinkSubcount = $0725  ; frames-of-current-second for the HUD blink driver: incremented every NMI at $c136 (after the entity-decay loop and SP restore), reset to 0 when it hits $3c (60). Only ticks when P1_Active is set
+HUD_BlinkSeconds = $0726  ; seconds counter for the HUD blink driver: incremented at $c145 each time HUD_BlinkSubcount wraps. Bit 0 selects between two 12-byte HUD glyph blocks ($c372 vs $c366) that get copied to OAM at $0200, producing the 1Hz on/off blink (PUSH START / 1UP-style indicator). Confirmed by long_idle drift: +1 per ~1 sec of in-game time
 Buttons_Held = $0785  ; current-frame joypad state stored MSB-first (A=$80, B=$40, SEL=$20, START=$10, UP=$08, DOWN=$04, LEFT=$02, RIGHT=$01). NOTE: bit ordering is the OPPOSITE of $98/$9a (which are LSB-first from Joypad_PollOne) — this byte is filled elsewhere in the input stack. Fire_Handler tests bit $40 (B); the input handlers at L_d472 / L_dc54 consume this same byte
 PPU_UpdateQueue = $078f  ; variable-length PPU update queue consumed by NMI_Handler. Each entry: addr_hi, addr_lo, count, count×data_byte; queue terminates when count == 0
 TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from menu choice, gates 2P paths in Continue_Init_P1 / NewGame_Init_P2
@@ -173,24 +184,24 @@ WarmBoot_Magic2 = $07be  ; second half of the warm-boot magic word; together wit
 8060: ad 9f 03                     lda     $039f                   
 8063: 6d a7 03                     adc     $03a7                   
 8066: 8d 9f 03                     sta     $039f                   
-8069: ad a0 03                     lda     $03a0                   
+8069: ad a0 03                     lda     ScrollY_Target          
 806c: 8d a2 03                     sta     $03a2                   
 806f: 6d a8 03                     adc     $03a8                   
-8072: 8d a0 03                     sta     $03a0                   
-8075: ac a1 03                     ldy     $03a1                   
+8072: 8d a0 03                     sta     ScrollY_Target          
+8075: ac a1 03                     ldy     NametableSelect         
 8078: 8c a3 03                     sty     $03a3                   
 807b: c9 f0                        cmp     #$f0                    
 807d: 90 19                        bcc     <a href="#L_8098">L_8098</a>                  
 807f: c9 f8                        cmp     #$f8                    
 8081: b0 0c                        bcs     <a href="#L_808f">L_808f</a>                  
-8083: ee a1 03                     inc     $03a1                   
+8083: ee a1 03                     inc     NametableSelect         
 8086: 18                           clc                             
 8087: 69 10                        adc     #$10                    
-8089: 8d a0 03                     sta     $03a0                   
+8089: 8d a0 03                     sta     ScrollY_Target          
 808c: 4c 98 80                     jmp     <a href="#L_8098">L_8098</a>                  
 808f: ce a1 03 38 ..<span id="D_808f">D_808f</span>          .byte   $ce, $a1, $03, $38, $e9, $10, $8d, $a0
 8097: 03                           .byte   $03
-8098: ad a0 03     <span id="L_8098">L_8098</span>          lda     $03a0                   
+8098: ad a0 03     <span id="L_8098">L_8098</span>          lda     ScrollY_Target          
 809b: 29 08                        and     #$08                    
 809d: 85 86                        sta     $86                     
 809f: ad a2 03                     lda     $03a2                   
@@ -199,10 +210,10 @@ WarmBoot_Magic2 = $07be  ; second half of the warm-boot magic word; together wit
 80a6: f0 03                        beq     <a href="#L_80ab">L_80ab</a>                  
 80a8: 20 da 80                     jsr     <a href="#L_80da">L_80da</a>                  
 80ab: ad 9d 03     <span id="L_80ab">L_80ab</span>          lda     $039d                   
-80ae: 85 8f                        sta     $8f                     
-80b0: ad a0 03                     lda     $03a0                   
-80b3: 85 90                        sta     $90                     
-80b5: ad a1 03                     lda     $03a1                   
+80ae: 85 8f                        sta     PPU_ScrollX             
+80b0: ad a0 03                     lda     ScrollY_Target          
+80b3: 85 90                        sta     PPU_ScrollY             
+80b5: ad a1 03                     lda     NametableSelect         
 80b8: 0a                           asl     A                       
 80b9: 29 02                        and     #$02                    
 80bb: 85 86                        sta     $86                     
@@ -224,7 +235,7 @@ WarmBoot_Magic2 = $07be  ; second half of the warm-boot magic word; together wit
 80e1: 30 04                        bmi     <a href="#L_80e7">L_80e7</a>                  
 80e3: a9 ee                        lda     #$ee                    
 80e5: 85 86                        sta     $86                     
-80e7: ad a0 03     <span id="L_80e7">L_80e7</span>          lda     $03a0                   
+80e7: ad a0 03     <span id="L_80e7">L_80e7</span>          lda     ScrollY_Target          
 80ea: 18                           clc                             
 80eb: 65 86                        adc     $86                     
 80ed: 8d 9a 03                     sta     $039a                   
@@ -234,7 +245,7 @@ WarmBoot_Magic2 = $07be  ; second half of the warm-boot magic word; together wit
 80f6: 18           <span id="L_80f6">L_80f6</span>          clc                             
 80f7: 69 10                        adc     #$10                    
 80f9: 8d 9a 03                     sta     $039a                   
-80fc: ac a1 03                     ldy     $03a1                   
+80fc: ac a1 03                     ldy     NametableSelect         
 80ff: c8                           iny                             
 8100: 8c 99 03                     sty     $0399                   
 8103: 4c 12 81                     jmp     <a href="#L_8112">L_8112</a>                  
@@ -2243,7 +2254,7 @@ a723: 0b 43 0b c0 ..                .byte   $0b, $43, $0b, $c0, $16, $43, $0b, $
 a72b: 0b c0 16 43 ..                .byte   $0b, $c0, $16, $43, $0b, $43, $0b, $c0
 a733: 21 73 0b 73 ..                .byte   $21, $73, $0b, $73, $0b, $73, $0b, $f0
 a73b: 0f 01 ff                     .byte   $0f, $01, $ff
-a73e: ad a1 03     <span id="L_a73e">L_a73e</span>          lda     $03a1                   
+a73e: ad a1 03     <span id="L_a73e">L_a73e</span>          lda     NametableSelect         
 a741: f0 04                        beq     <a href="#L_a747">L_a747</a>                  
 a743: c9 21                        cmp     #$21                    
 a745: 90 0b                        bcc     <a href="#L_a752">L_a752</a>                  
@@ -2368,18 +2379,18 @@ a893: ad 3f 04     <span id="L_a893">L_a893</span>          lda     $043f
 a896: 8d 97 03                     sta     $0397                   
 a899: ad 40 04                     lda     $0440                   
 a89c: 8d 96 03                     sta     $0396                   
-a89f: ad 3d 04                     lda     $043d                   
+a89f: ad 3d 04                     lda     Spawn_Tally_Lo          
 a8a2: 8d 91 03                     sta     $0391                   
-a8a5: ad 3e 04                     lda     $043e                   
+a8a5: ad 3e 04                     lda     Spawn_Tally_Hi          
 a8a8: 8d 90 03                     sta     $0390                   
 a8ab: 4c c6 a8                     jmp     <a href="#L_a8c6">L_a8c6</a>                  
 a8ae: ad 3b 04     <span id="L_a8ae">L_a8ae</span>          lda     $043b                   
 a8b1: 8d 97 03                     sta     $0397                   
 a8b4: ad 3c 04                     lda     $043c                   
 a8b7: 8d 96 03                     sta     $0396                   
-a8ba: ad 39 04                     lda     $0439                   
+a8ba: ad 39 04                     lda     Spawn_TallyAlt_Lo       
 a8bd: 8d 91 03                     sta     $0391                   
-a8c0: ad 3a 04                     lda     $043a                   
+a8c0: ad 3a 04                     lda     Spawn_TallyAlt_Hi       
 a8c3: 8d 90 03                     sta     $0390                   
 a8c6: a9 00        <span id="L_a8c6">L_a8c6</span>          lda     #$00                    
 a8c8: 8d 8b 03                     sta     $038b                   
@@ -3432,7 +3443,7 @@ b489: b9 ec 05 c9 ..<span id="D_b489">D_b489</span>          .byte   $b9, $ec, $
 b491: b0 b4                        .byte   $b0, $b4
 b493: b9 ec 05 85 ..<span id="D_b493">D_b493</span>          .byte   $b9, $ec, $05, $85, $86, $84, $87, $a9
 b49b: 00 38                        .byte   $00, $38
-b49d: ed a1 03     <span id="L_b49d">L_b49d</span>          sbc     $03a1                   
+b49d: ed a1 03     <span id="L_b49d">L_b49d</span>          sbc     NametableSelect         
 b4a0: 4a                           lsr     A                       
 b4a1: 4a                           lsr     A                       
 b4a2: 4a                           lsr     A                       
@@ -3529,7 +3540,7 @@ b587: b5 a2        <span id="L_b587">L_b587</span>          lda     $a2,X
 b589: 18                           clc                             
 b58a: a9 0a                        lda     #$0a                    
 b58c: 9d 8e 04                     sta     Entity_Active,X         
-b58f: ad 1f 07                     lda     $071f                   
+b58f: ad 1f 07                     lda     Spawn_PatternIndex      
 b592: 29 01                        and     #$01                    
 b594: 0a                           asl     A                       
 b595: 0a                           asl     A                       
@@ -3704,9 +3715,9 @@ b7c2: 10 ad        <span id="L_b7c2">L_b7c2</span>          bpl     <a href="#L_
 b7c4: bc 07 d0                     ldy     $d007,X                 
 b7c7: 0d 20 e5                     ora     $e520                   
 b7ca: b9 a9 01                     lda     $01a9,Y                 
-b7cd: 8d a1 03                     sta     $03a1                   
+b7cd: 8d a1 03                     sta     NametableSelect         
 b7d0: a9 00                        lda     #$00                    
-b7d2: 8d a0 03                     sta     $03a0                   
+b7d2: 8d a0 03                     sta     ScrollY_Target          
 b7d5: 20 db 9f                     jsr     <a href="#L_9fdb">L_9fdb</a>                  
 b7d8: a9 ff        <span id="NewGame_Init_P1">NewGame_Init_P1</span> lda     #$ff                    
 b7da: 8d 85 03                     sta     P1_Active               
@@ -3767,9 +3778,9 @@ b868: 10 fa                        bpl     <a href="#L_b864">L_b864</a>
 b86a: ad bc 07                     lda     TwoPlayer_Mode          
 b86d: d0 0a                        bne     <a href="#L_b879">L_b879</a>                  
 b86f: a9 01                        lda     #$01                    
-b871: 8d a1 03                     sta     $03a1                   
+b871: 8d a1 03                     sta     NametableSelect         
 b874: a9 00                        lda     #$00                    
-b876: 8d a0 03                     sta     $03a0                   
+b876: 8d a0 03                     sta     ScrollY_Target          
 b879: a9 00        <span id="L_b879">L_b879</span>          lda     #$00                    
 b87b: a0 11                        ldy     #$11                    
 b87d: 99 37 04     <span id="L_b87d">L_b87d</span>          sta     Respawn_Count,Y         
@@ -4170,8 +4181,8 @@ bcf1: a5 8c        <span id="L_bcf1">L_bcf1</span>          lda     PPUCTRL_Shad
 bcf3: 29 fd                        and     #$fd                    
 bcf5: 85 8c                        sta     PPUCTRL_Shadow          
 bcf7: a9 00                        lda     #$00                    
-bcf9: 85 8f                        sta     $8f                     
-bcfb: 85 90                        sta     $90                     
+bcf9: 85 8f                        sta     PPU_ScrollX             
+bcfb: 85 90                        sta     PPU_ScrollY             
 bcfd: 20 3d b9                     jsr     <a href="#L_b93d">L_b93d</a>                  
 bd00: 20 6c b9                     jsr     <a href="#L_b96c">L_b96c</a>                  
 bd03: a9 51                        lda     #$51                    
@@ -4492,9 +4503,9 @@ bfe1: a9 10                        lda     #$10
 bfe3: 85 8c                        sta     PPUCTRL_Shadow          
 bfe5: a9 00                        lda     #$00                    
 bfe7: 8d 05 20                     sta     PPUSCROLL               
-bfea: 85 8f                        sta     $8f                     
+bfea: 85 8f                        sta     PPU_ScrollX             
 bfec: 8d 05 20                     sta     PPUSCROLL               
-bfef: 85 90                        sta     $90                     
+bfef: 85 90                        sta     PPU_ScrollY             
 bff1: 20 6c b9                     jsr     <a href="#L_b96c">L_b96c</a>                  
 bff4: 20 3d b9                     jsr     <a href="#L_b93d">L_b93d</a>                  
 bff7: a9 ff                        lda     #$ff                    
@@ -4604,7 +4615,7 @@ c0df: 8d 06 20                     sta     PPUADDR
 c0e2: 8d 06 20                     sta     PPUADDR                 
 c0e5: a9 00                        lda     #$00                    
 c0e7: 8d 05 20                     sta     PPUSCROLL               
-c0ea: a5 90                        lda     $90                     
+c0ea: a5 90                        lda     PPU_ScrollY             
 c0ec: 8d 05 20                     sta     PPUSCROLL               
 c0ef: a5 8c                        lda     PPUCTRL_Shadow          
 c0f1: 8d 00 20                     sta     PPUCTRL                 
@@ -4641,14 +4652,14 @@ c12d: ae 2c 07                     ldx     $072c
 c130: 9a                           txs                             
 c131: ad 85 03                     lda     P1_Active               
 c134: f0 53                        beq     <a href="#L_c189">L_c189</a>                  
-c136: ee 25 07                     inc     $0725                   
-c139: ad 25 07                     lda     $0725                   
+c136: ee 25 07                     inc     HUD_BlinkSubcount       
+c139: ad 25 07                     lda     HUD_BlinkSubcount       
 c13c: c9 3c                        cmp     #$3c                    
 c13e: d0 31                        bne     <a href="#L_c171">L_c171</a>                  
 c140: a9 00                        lda     #$00                    
-c142: 8d 25 07                     sta     $0725                   
-c145: ee 26 07                     inc     $0726                   
-c148: ad 26 07                     lda     $0726                   
+c142: 8d 25 07                     sta     HUD_BlinkSubcount       
+c145: ee 26 07                     inc     HUD_BlinkSeconds        
+c148: ad 26 07                     lda     HUD_BlinkSeconds        
 c14b: 29 01                        and     #$01                    
 c14d: f0 3a                        beq     <a href="#L_c189">L_c189</a>                  
 c14f: ad 86 03                     lda     Active_Player_Index     
@@ -6126,8 +6137,8 @@ d7a1: a9 ff        <span id="Death_Sequence">Death_Sequence</span>  lda     #$ff
 d7a3: 8d c5 07                     sta     $07c5                   
 d7a6: 8d 18 07                     sta     $0718                   
 d7a9: a9 00                        lda     #$00                    
-d7ab: 8d 39 04                     sta     $0439                   
-d7ae: 8d 3a 04                     sta     $043a                   
+d7ab: 8d 39 04                     sta     Spawn_TallyAlt_Lo       
+d7ae: 8d 3a 04                     sta     Spawn_TallyAlt_Hi       
 d7b1: 8d 3b 04                     sta     $043b                   
 d7b4: 8d 3c 04                     sta     $043c                   
 d7b7: a5 8d                        lda     $8d                     
@@ -6140,7 +6151,7 @@ d7c6: d0 05                        bne     <a href="#L_d7cd">L_d7cd</a>
 d7c8: ad 37 04                     lda     Respawn_Count           
 d7cb: f0 06                        beq     <a href="#L_d7d3">L_d7d3</a>                  
 d7cd: ad 35 04     <span id="L_d7cd">L_d7cd</span>          lda     $0435                   
-d7d0: 8d a1 03                     sta     $03a1                   
+d7d0: 8d a1 03                     sta     NametableSelect         
 d7d3: 20 00 80     <span id="L_d7d3">L_d7d3</span>          jsr     <a href="#L_8000">L_8000</a>                  
 d7d6: 20 3e a7                     jsr     <a href="#L_a73e">L_a73e</a>                  
 d7d9: a9 00                        lda     #$00                    
@@ -6156,7 +6167,7 @@ d7ed: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>
 d7f0: a9 00        <span id="L_d7f0">L_d7f0</span>          lda     #$00                    
 d7f2: 8d 33 04                     sta     $0433                   
 d7f5: 38                           sec                             
-d7f6: ed a1 03                     sbc     $03a1                   
+d7f6: ed a1 03                     sbc     NametableSelect         
 d7f9: 4a                           lsr     A                       
 d7fa: 4a                           lsr     A                       
 d7fb: 4a                           lsr     A                       
@@ -6323,7 +6334,7 @@ d966: d0 e3                        bne     <a href="#L_d94b">L_d94b</a>
 d968: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 d96b: a9 00                        lda     #$00                    
 d96d: 8d 8c 07                     sta     $078c                   
-d970: ad a1 03                     lda     $03a1                   
+d970: ad a1 03                     lda     NametableSelect         
 d973: 4a                           lsr     A                       
 d974: 4a                           lsr     A                       
 d975: 29 3e                        and     #$3e                    
@@ -6333,13 +6344,13 @@ d97b: 85 d4                        sta     $d4
 d97d: c8                           iny                             
 d97e: b9 6f e2                     lda     $e26f,Y                 
 d981: 85 d5                        sta     $d5                     
-d983: ad a1 03                     lda     $03a1                   
+d983: ad a1 03                     lda     NametableSelect         
 d986: f0 27                        beq     <a href="#L_d9af">L_d9af</a>                  
 d988: a0 00        <span id="L_d988">L_d988</span>          ldy     #$00                    
 d98a: b1 d4                        lda     ($d4),Y                 
 d98c: 29 07                        and     #$07                    
 d98e: 85 b0                        sta     $b0                     
-d990: ad a1 03                     lda     $03a1                   
+d990: ad a1 03                     lda     NametableSelect         
 d993: 29 07                        and     #$07                    
 d995: 85 b1                        sta     $b1                     
 d997: a5 b0                        lda     $b0                     
@@ -6359,7 +6370,7 @@ d9b2: a0 00        <span id="L_d9b2">L_d9b2</span>          ldy     #$00
 d9b4: b1 d4                        lda     ($d4),Y                 
 d9b6: 29 07                        and     #$07                    
 d9b8: 85 b0                        sta     $b0                     
-d9ba: ad a1 03                     lda     $03a1                   
+d9ba: ad a1 03                     lda     NametableSelect         
 d9bd: 29 07                        and     #$07                    
 d9bf: 85 b1                        sta     $b1                     
 d9c1: a5 b0                        lda     $b0                     
@@ -6660,10 +6671,10 @@ dc75: ad 8c 04                     lda     $048c
 dc78: c9 ff                        cmp     #$ff                    
 dc7a: d0 03                        bne     <a href="#L_dc7f">L_dc7f</a>                  
 dc7c: 4c e0 e1                     jmp     <a href="#L_e1e0">L_e1e0</a>                  
-dc7f: ad a1 03     <span id="L_dc7f">L_dc7f</span>          lda     $03a1                   
+dc7f: ad a1 03     <span id="L_dc7f">L_dc7f</span>          lda     NametableSelect         
 dc82: 29 07                        and     #$07                    
 dc84: d0 37                        bne     <a href="#L_dcbd">L_dcbd</a>                  
-dc86: ad a0 03                     lda     $03a0                   
+dc86: ad a0 03                     lda     ScrollY_Target          
 dc89: c9 81                        cmp     #$81                    
 dc8b: b0 30                        bcs     <a href="#L_dcbd">L_dcbd</a>                  
 dc8d: c9 71                        cmp     #$71                    
@@ -6684,7 +6695,7 @@ dcaa: c0 16                        cpy     #$16
 dcac: 90 f1                        bcc     <a href="#L_dc9f">L_dc9f</a>                  
 dcae: b0 0d                        bcs     <a href="#L_dcbd">L_dcbd</a>                  
 dcb0: 20 5c de     <span id="L_dcb0">L_dcb0</span>          jsr     <a href="#L_de5c">L_de5c</a>                  
-dcb3: ad a0 03                     lda     $03a0                   
+dcb3: ad a0 03                     lda     ScrollY_Target          
 dcb6: c9 61                        cmp     #$61                    
 dcb8: b0 03                        bcs     <a href="#L_dcbd">L_dcbd</a>                  
 dcba: 4c 9d de                     jmp     <a href="#L_de9d">L_de9d</a>                  
@@ -6795,7 +6806,7 @@ ddf7: 8d a9 03                     sta     $03a9
 ddfa: 20 4c 80                     jsr     <a href="#L_804c">L_804c</a>                  
 ddfd: a9 08                        lda     #$08                    
 ddff: 8d 19 05                     sta     $0519                   
-de02: ad a0 03                     lda     $03a0                   
+de02: ad a0 03                     lda     ScrollY_Target          
 de05: c9 e8                        cmp     #$e8                    
 de07: b0 23                        bcs     <a href="#L_de2c">L_de2c</a>                  
 de09: 4c 2f de                     jmp     <a href="#L_de2f">L_de2f</a>                  
@@ -6806,7 +6817,7 @@ de13: 8d a9 03                     sta     $03a9
 de16: 20 4c 80                     jsr     <a href="#L_804c">L_804c</a>                  
 de19: a9 00                        lda     #$00                    
 de1b: 8d 19 05                     sta     $0519                   
-de1e: ad a0 03                     lda     $03a0                   
+de1e: ad a0 03                     lda     ScrollY_Target          
 de21: c9 e8                        cmp     #$e8                    
 de23: b0 0a                        bcs     <a href="#L_de2f">L_de2f</a>                  
 de25: c9 30                        cmp     #$30                    
@@ -7123,8 +7134,8 @@ e107: c9 13                        cmp     #$13
 e109: d0 e3                        bne     <a href="#L_e0ee">L_e0ee</a>                  
 e10b: a9 00                        lda     #$00                    
 e10d: 8d 8c 07                     sta     $078c                   
-e110: 8d 39 04                     sta     $0439                   
-e113: 8d 3a 04                     sta     $043a                   
+e110: 8d 39 04                     sta     Spawn_TallyAlt_Lo       
+e113: 8d 3a 04                     sta     Spawn_TallyAlt_Hi       
 e116: 8d 3b 04                     sta     $043b                   
 e119: 8d 3c 04                     sta     $043c                   
 e11c: a9 10        <span id="L_e11c">L_e11c</span>          lda     #$10                    
@@ -7146,7 +7157,7 @@ e141: 85 87                        sta     PPU_WriteCount
 e143: a9 78                        lda     #$78                    
 e145: 85 86                        sta     $86                     
 e147: 20 51 c2                     jsr     <a href="#L_c251">L_c251</a>                  
-e14a: ad a1 03                     lda     $03a1                   
+e14a: ad a1 03                     lda     NametableSelect         
 e14d: f0 0e                        beq     <a href="#L_e15d">L_e15d</a>                  
 e14f: a9 00                        lda     #$00                    
 e151: 8d 37 04                     sta     Respawn_Count           
@@ -7196,7 +7207,7 @@ e1e8: 20 db 9f                     jsr     <a href="#L_9fdb">L_9fdb</a>
 e1eb: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 e1ee: a9 00                        lda     #$00                    
 e1f0: 38                           sec                             
-e1f1: ed a1 03                     sbc     $03a1                   
+e1f1: ed a1 03                     sbc     NametableSelect         
 e1f4: 85 86                        sta     $86                     
 e1f6: 29 07                        and     #$07                    
 e1f8: f0 08                        beq     <a href="#L_e202">L_e202</a>                  
@@ -7214,10 +7225,10 @@ e20e: c6 86        <span id="L_e20e">L_e20e</span>          dec     $86
 e210: a9 00                        lda     #$00                    
 e212: 38                           sec                             
 e213: e5 86                        sbc     $86                     
-e215: 8d a1 03                     sta     $03a1                   
+e215: 8d a1 03                     sta     NametableSelect         
 e218: 8d 35 04                     sta     $0435                   
 e21b: a9 00                        lda     #$00                    
-e21d: 8d a0 03                     sta     $03a0                   
+e21d: 8d a0 03                     sta     ScrollY_Target          
 e220: 20 06 c3                     jsr     <a href="#L_c306">L_c306</a>                  
 e223: a9 00                        lda     #$00                    
 e225: 8d 85 03                     sta     P1_Active               
@@ -7811,12 +7822,12 @@ ee54: f0 06                        beq     <a href="#L_ee5c">L_ee5c</a>
 ee56: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 ee59: 4c 3b ee                     jmp     <a href="#L_ee3b">L_ee3b</a>                  
 ee5c: 4c 4a f9     <span id="D_ee5c">D_ee5c</span>          .byte   $4c, $4a, $f9
-ee5f: ee 39 04     <span id="L_ee5f">L_ee5f</span>          inc     $0439                   
+ee5f: ee 39 04     <span id="L_ee5f">L_ee5f</span>          inc     Spawn_TallyAlt_Lo       
 ee62: d0 03                        bne     <a href="#L_ee67">L_ee67</a>                  
-ee64: ee 3a 04                     inc     $043a                   
-ee67: ee 3d 04     <span id="L_ee67">L_ee67</span>          inc     $043d                   
+ee64: ee 3a 04                     inc     Spawn_TallyAlt_Hi       
+ee67: ee 3d 04     <span id="L_ee67">L_ee67</span>          inc     Spawn_Tally_Lo          
 ee6a: d0 03                        bne     <a href="#L_ee6f">L_ee6f</a>                  
-ee6c: ee 3e 04                     inc     $043e                   
+ee6c: ee 3e 04                     inc     Spawn_Tally_Hi          
 ee6f: a9 88        <span id="L_ee6f">L_ee6f</span>          lda     #$88                    
 ee71: 9d 8e 04                     sta     Entity_Active,X         
 ee74: a9 ff                        lda     #$ff                    
@@ -7958,12 +7969,12 @@ f03a: b5 ef bd ef ..                .byte   $b5, $ef, $bd, $ef, $c5, $ef, $cd, $
 f042: bd ef da ef ..                .byte   $bd, $ef, $da, $ef, $da, $ef, $da, $ef
 f04a: da ef da ef ..                .byte   $da, $ef, $da, $ef, $da, $ef, $da, $ef
 f052: da ef                        .byte   $da, $ef
-f054: ad 1f 07     <span id="L_f054">L_f054</span>          lda     $071f                   
+f054: ad 1f 07     <span id="L_f054">L_f054</span>          lda     Spawn_PatternIndex      
 f057: 29 07                        and     #$07                    
 f059: 0a                           asl     A                       
 f05a: 0a                           asl     A                       
 f05b: a8                           tay                             
-f05c: ee 1f 07                     inc     $071f                   
+f05c: ee 1f 07                     inc     Spawn_PatternIndex      
 f05f: b9 2e f1                     lda     $f12e,Y                 
 f062: 9d 6f 05                     sta     $056f,X                 
 f065: c8                           iny                             
@@ -8040,12 +8051,12 @@ f167: 4c 3c f8                     jmp     <a href="#L_f83c">L_f83c</a>
 f16a: 20 75 c2 20 ..<span id="D_f16a">D_f16a</span>          .byte   $20, $75, $c2, $20, $cf, $b3, $f0, $e8
 f172: 4c 3c f8                     .byte   $4c, $3c, $f8
 f175: 60           <span id="D_f175">D_f175</span>          .byte   $60
-f176: ad 1f 07     <span id="L_f176">L_f176</span>          lda     $071f                   
+f176: ad 1f 07     <span id="L_f176">L_f176</span>          lda     Spawn_PatternIndex      
 f179: 29 0f                        and     #$0f                    
 f17b: 0a                           asl     A                       
 f17c: 0a                           asl     A                       
 f17d: a8                           tay                             
-f17e: ee 1f 07                     inc     $071f                   
+f17e: ee 1f 07                     inc     Spawn_PatternIndex      
 f181: b9 ec f3                     lda     $f3ec,Y                 
 f184: 9d 6f 05                     sta     $056f,X                 
 f187: c8                           iny                             
@@ -8067,7 +8078,7 @@ f1ab: ad 24 05 f0 ..<span id="D_f1ab">D_f1ab</span>          .byte   $ad, $24, $
 f1b3: bc f1                        .byte   $bc, $f1
 f1b5: a9 20 4c bc ..<span id="D_f1b5">D_f1b5</span>          .byte   $a9, $20, $4c, $bc, $f1, $a9, $00
 f1bc: 85 b0        <span id="L_f1bc">L_f1bc</span>          sta     $b0                     
-f1be: ad 1f 07                     lda     $071f                   
+f1be: ad 1f 07                     lda     Spawn_PatternIndex      
 f1c1: 29 07                        and     #$07                    
 f1c3: 0a                           asl     A                       
 f1c4: 0a                           asl     A                       
@@ -8216,12 +8227,12 @@ f338: 4c c9 f2     <span id="D_f338">D_f338</span>          .byte   $4c, $c9, $f
 f33b: a9 06 4c 42 ..<span id="D_f33b">D_f33b</span>          .byte   $a9, $06, $4c, $42, $f3
 f340: a9 0a 9d 0b ..<span id="D_f340">D_f340</span>          .byte   $a9, $0a, $9d, $0b, $05, $20, $c3, $f7
 f348: 20 86 f3 60                  .byte   $20, $86, $f3, $60
-f34c: ad 1f 07     <span id="L_f34c">L_f34c</span>          lda     $071f                   
+f34c: ad 1f 07     <span id="L_f34c">L_f34c</span>          lda     Spawn_PatternIndex      
 f34f: 29 03                        and     #$03                    
 f351: 0a                           asl     A                       
 f352: 0a                           asl     A                       
 f353: a8                           tay                             
-f354: ee 1f 07                     inc     $071f                   
+f354: ee 1f 07                     inc     Spawn_PatternIndex      
 f357: b9 ec f3                     lda     $f3ec,Y                 
 f35a: 9d 6f 05                     sta     $056f,X                 
 f35d: c8                           iny                             
@@ -8294,12 +8305,12 @@ f40c: 00 50 01 00 ..                .byte   $00, $50, $01, $00, $00, $50, $00, $
 f414: 01 b0 00 70 ..                .byte   $01, $b0, $00, $70, $01, $b0, $01, $00
 f41c: 00 50 00 80 ..                .byte   $00, $50, $00, $80, $01, $b0, $00, $90
 f424: 01 b0 00 80 ..                .byte   $01, $b0, $00, $80, $00, $50, $00, $90
-f42c: ad 1f 07     <span id="L_f42c">L_f42c</span>          lda     $071f                   
+f42c: ad 1f 07     <span id="L_f42c">L_f42c</span>          lda     Spawn_PatternIndex      
 f42f: 29 07                        and     #$07                    
 f431: 0a                           asl     A                       
 f432: 0a                           asl     A                       
 f433: a8                           tay                             
-f434: ee 1f 07                     inc     $071f                   
+f434: ee 1f 07                     inc     Spawn_PatternIndex      
 f437: b9 50 f5                     lda     $f550,Y                 
 f43a: 9d 6f 05                     sta     $056f,X                 
 f43d: c8                           iny                             
@@ -8892,7 +8903,7 @@ fa3e: 29 02                        and     #$02
 fa40: f0 01                        beq     <a href="#L_fa43">L_fa43</a>                  
 fa42: 60           <span id="L_fa42">L_fa42</span>          rts                             
 fa43: ee c7 07     <span id="L_fa43">L_fa43</span>          inc     $07c7                   
-fa46: ad a1 03                     lda     $03a1                   
+fa46: ad a1 03                     lda     NametableSelect         
 fa49: 4a                           lsr     A                       
 fa4a: 4a                           lsr     A                       
 fa4b: cd c7 07                     cmp     $07c7                   
@@ -8983,7 +8994,7 @@ fb0d: f0 7d                        beq     <a href="#L_fb8c">L_fb8c</a>
 fb0f: 99 0e 07                     sta     $070e,Y                 
 fb12: 60           <span id="L_fb12">L_fb12</span>          rts                             
 fb13: ee c6 07     <span id="L_fb13">L_fb13</span>          inc     $07c6                   
-fb16: ad a1 03                     lda     $03a1                   
+fb16: ad a1 03                     lda     NametableSelect         
 fb19: 4a                           lsr     A                       
 fb1a: 4a                           lsr     A                       
 fb1b: 4a                           lsr     A                       
@@ -8999,7 +9010,7 @@ fb2e: a9 02                        lda     #$02
 fb30: 4c 3d fb                     jmp     <a href="#L_fb3d">L_fb3d</a>                  
 fb33: a9 00        <span id="L_fb33">L_fb33</span>          lda     #$00                    
 fb35: 38                           sec                             
-fb36: ed a1 03                     sbc     $03a1                   
+fb36: ed a1 03                     sbc     NametableSelect         
 fb39: 2a                           rol     A                       
 fb3a: 2a                           rol     A                       
 fb3b: 29 01                        and     #$01                    
@@ -9091,7 +9102,7 @@ fbf7: 99 88 05                     sta     $0588,Y
 fbfa: b9 6f 05                     lda     $056f,Y                 
 fbfd: e9 00                        sbc     #$00                    
 fbff: 99 6f 05                     sta     $056f,Y                 
-fc02: ad a0 03                     lda     $03a0                   
+fc02: ad a0 03                     lda     ScrollY_Target          
 fc05: 29 0f                        and     #$0f                    
 fc07: 18                           clc                             
 fc08: 79 88 05                     adc     $0588,Y                 

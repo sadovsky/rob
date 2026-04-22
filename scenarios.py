@@ -149,6 +149,29 @@ def _build_autofire(total_chunks=8, chunk_frames=600):
 
 _autofire_steps, _autofire_cps = _build_autofire()
 
+
+# Long pure-idle in-game run with frequent checkpoints. We sit at the
+# starting position and don't press anything; the goal is to isolate
+# the steady scroll/level/wave counters that advance even without input.
+def _build_long_idle(total_chunks=15, chunk_frames=120):
+    """Steps after press_start+settle: total_chunks * chunk_frames
+    of pure idle. Checkpoints after each chunk reveal monotonic
+    drifters — anything that ticks here is gameplay-time-driven, not
+    input-driven."""
+    chunks = [(0, chunk_frames) for _ in range(total_chunks)]
+    settle_step = (0, _INGAME_SETTLE)
+    steps = list(_press_start_steps) + [settle_step] + chunks
+    baseline_idx = len(_press_start_steps)
+    cps = [baseline_idx]
+    cur = baseline_idx
+    for _ in range(total_chunks):
+        cur += 1
+        cps.append(cur)
+    return steps, cps
+
+
+_long_idle_steps, _long_idle_cps = _build_long_idle()
+
 SCENARIOS = {
     'boot': Scenario(
         name='boot',
@@ -228,6 +251,18 @@ SCENARIOS = {
                      'and rolls so the player survives long enough.'),
         steps=_autofire_steps,
         checkpoints=_autofire_cps,
+    ),
+    'long_idle': Scenario(
+        name='long_idle',
+        description=('enter game, snapshot, then 15 chunks of 120 idle '
+                     'frames each = ~30 seconds of doing absolutely '
+                     'nothing. The player will eventually get killed; '
+                     'pair with --genie SZXLKEVK (Infinite Lives P1) '
+                     'so the snapshots stay in-game. Use to isolate '
+                     'gameplay-time-driven counters (scroll position, '
+                     'wave timer) from input-driven state'),
+        steps=_long_idle_steps,
+        checkpoints=_long_idle_cps,
     ),
 }
 
