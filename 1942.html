@@ -7840,7 +7840,7 @@ ee1a: a9 88                        lda     #$88
 ee1c: 9d 8e 04                     sta     Entity_Active,X         
 ee1f: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 ee22: a9 13                        lda     #$13                    
-ee24: 20 e1 f9                     jsr     <a href="#L_f9e1">L_f9e1</a>                  
+ee24: 20 e1 f9                     jsr     <a href="#Death_StoreFinalSprite">Death_StoreFinalSprite</a>  
 ee27: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
 ee2a: 00 c4 01 1c ..<span id="D_ee2a">D_ee2a</span>          .byte   $00, $c4, $01, $1c, $00, $e4, $01, $0c
 ee32: 00 d4 01 2c                  .byte   $00, $d4, $01, $2c
@@ -8750,10 +8750,10 @@ f876: a9 08                        lda     #$08
 f878: 9d 0b 05                     sta     Entity_Direction,X      
 f87b: a9 ff                        lda     #$ff                    
 f87d: 9d 9b 06                     sta     Entity_FrameTick,X      
-f880: bd d3 05                     lda     Entity_TypeId,X         
+f880: bd d3 05     <span id="Enemy_Death_Handler">Enemy_Death_Handler</span>lda     Entity_TypeId,X         
 f883: c9 30                        cmp     #$30                    
 f885: 90 03                        bcc     <a href="#L_f88a">L_f88a</a>                  
-f887: 4c ab f9                     jmp     <a href="#L_f9ab">L_f9ab</a>                  
+f887: 4c ab f9                     jmp     <a href="#Enemy_Death_Anim3">Enemy_Death_Anim3</a>       
 f88a: a9 01        <span id="L_f88a">L_f88a</span>          lda     #$01                    
 f88c: 9d f2 04                     sta     Entity_Class,X          
 f88f: bd d3 05                     lda     Entity_TypeId,X         
@@ -8789,8 +8789,8 @@ f8d3: 20 1a ac                     jsr     <a href="#Score_AddBCD">Score_AddBCD<
 f8d6: ce 17 07                     dec     $0717                   
 f8d9: d0 6f                        bne     <a href="#L_f94a">L_f94a</a>                  
 f8db: a9 00                        lda     #$00                    
-f8dd: 20 e1 f9                     jsr     <a href="#L_f9e1">L_f9e1</a>                  
-f8e0: a0 00                        ldy     #$00                    
+f8dd: 20 e1 f9                     jsr     <a href="#Death_StoreFinalSprite">Death_StoreFinalSprite</a>  
+f8e0: a0 00        <span id="DeathSprite_TypeMap">DeathSprite_TypeMap</span>ldy     #$00                    
 f8e2: bd d3 05                     lda     Entity_TypeId,X         
 f8e5: c9 0a                        cmp     #$0a                    
 f8e7: f0 10                        beq     <a href="#L_f8f9">L_f8f9</a>                  
@@ -8807,10 +8807,10 @@ f8f8: c8                           iny
 f8f9: 98           <span id="L_f8f9">L_f8f9</span>          tya                             
 f8fa: 0a                           asl     A                       
 f8fb: a8                           tay                             
-f8fc: b9 d3 fc                     lda     $fcd3,Y                 
+f8fc: b9 d3 fc                     lda     <a href="#DeathSprite_TileClassTable">DeathSprite_TileClassTable</a>,Y
 f8ff: 9d d9 04                     sta     Entity_SpriteTile,X     
 f902: c8                           iny                             
-f903: b9 d3 fc                     lda     $fcd3,Y                 
+f903: b9 d3 fc                     lda     <a href="#DeathSprite_TileClassTable">DeathSprite_TileClassTable</a>,Y
 f906: 9d f2 04                     sta     Entity_Class,X          
 f909: 20 cd f7     <span id="L_f909">L_f909</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
 f90c: f0 3c                        beq     <a href="#L_f94a">L_f94a</a>                  
@@ -8832,7 +8832,7 @@ f931: 38                           sec
 f932: e9 7a                        sbc     #$7a                    
 f934: 8d 18 07                     sta     $0718                   
 f937: a9 01                        lda     #$01                    
-f939: 20 e1 f9                     jsr     <a href="#L_f9e1">L_f9e1</a>                  
+f939: 20 e1 f9                     jsr     <a href="#Death_StoreFinalSprite">Death_StoreFinalSprite</a>  
 f93c: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
 f93f: a9 05 85 8a ..<span id="D_f93f">D_f93f</span>          .byte   $a9, $05, $85, $8a, $a9, $00, $85, $8b
 f947: 20 14 ac                     .byte   $20, $14, $ac
@@ -8845,7 +8845,7 @@ f958: c9 ff                        cmp     #$ff
 f95a: f0 21                        beq     <a href="#L_f97d">L_f97d</a>                  
 f95c: a9 13                        lda     #$13                    
 f95e: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
-f961: fe 9b 06     <span id="L_f961">L_f961</span>          inc     Entity_FrameTick,X      
+f961: fe 9b 06     <span id="Enemy_Death_Anim2">Enemy_Death_Anim2</span>inc     Entity_FrameTick,X      
 f964: bd 9b 06                     lda     Entity_FrameTick,X      
 f967: 4a                           lsr     A                       
 f968: c9 0a                        cmp     #$0a                    
@@ -8856,7 +8856,7 @@ f96f: 9d d9 04                     sta     Entity_SpriteTile,X
 f972: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
 f975: f0 06                        beq     <a href="#L_f97d">L_f97d</a>                  
 f977: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
-f97a: 4c 61 f9                     jmp     <a href="#L_f961">L_f961</a>                  
+f97a: 4c 61 f9                     jmp     <a href="#Enemy_Death_Anim2">Enemy_Death_Anim2</a>       
 f97d: bd d3 05     <span id="L_f97d">L_f97d</span>          lda     Entity_TypeId,X         
 f980: c9 30                        cmp     #$30                    
 f982: b0 12                        bcs     <a href="#L_f996">L_f996</a>                  
@@ -8872,10 +8872,10 @@ f99a: 69 03                        adc     #$03
 f99c: c9 11                        cmp     #$11                    
 f99e: 90 02                        bcc     <a href="#L_f9a2">L_f9a2</a>                  
 f9a0: a9 11                        lda     #$11                    
-f9a2: 20 e1 f9     <span id="L_f9a2">L_f9a2</span>          jsr     <a href="#L_f9e1">L_f9e1</a>                  
+f9a2: 20 e1 f9     <span id="L_f9a2">L_f9a2</span>          jsr     <a href="#Death_StoreFinalSprite">Death_StoreFinalSprite</a>  
 f9a5: ee ec 05                     inc     Entity_AnimFrame        
 f9a8: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
-f9ab: ad 37 04     <span id="L_f9ab">L_f9ab</span>          lda     Respawn_Count           
+f9ab: ad 37 04     <span id="Enemy_Death_Anim3">Enemy_Death_Anim3</span>lda     Respawn_Count           
 f9ae: c9 ff                        cmp     #$ff                    
 f9b0: f0 cb                        beq     <a href="#L_f97d">L_f97d</a>                  
 f9b2: a9 12                        lda     #$12                    
@@ -8895,7 +8895,7 @@ f9ce: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>
 f9d1: 4c b7 f9                     jmp     <a href="#L_f9b7">L_f9b7</a>                  
 f9d4: a9 ff 9d 9b ..<span id="D_f9d4">D_f9d4</span>          .byte   $a9, $ff, $9d, $9b, $06, $a9, $01, $9d
 f9dc: f2 04 4c 61 ..                .byte   $f2, $04, $4c, $61, $f9
-f9e1: 85 b0        <span id="L_f9e1">L_f9e1</span>          sta     $b0                     
+f9e1: 85 b0        <span id="Death_StoreFinalSprite">Death_StoreFinalSprite</span>sta     $b0                     
 f9e3: 18                           clc                             
 f9e4: 69 b0                        adc     #$b0                    
 f9e6: 9d d9 04                     sta     Entity_SpriteTile,X     
