@@ -4779,7 +4779,7 @@ c1dc: 06 95                        asl     $95
 c1de: a6 95                        ldx     $95                     
 c1e0: b4 98                        ldy     $98,X                   
 c1e2: 84 95                        sty     $95                     
-c1e4: 95 98                        sta     $98,X                   
+c1e4: 95 98        <span id="JoypadLatch_StoreSite">JoypadLatch_StoreSite</span>sta     $98,X                   
 c1e6: 95 99                        sta     $99,X                   
 c1e8: 29 ff                        and     #$ff                    
 c1ea: 10 08                        bpl     <a href="#L_c1f4">L_c1f4</a>                  
@@ -6337,7 +6337,7 @@ d8fc: a9 ff                        lda     #$ff
 d8fe: 8d 8c 07                     sta     $078c                   
 d901: a9 3c                        lda     #$3c                    
 d903: 8d 0a 07                     sta     SpawnTimer_Lo           
-d906: ce 0a 07     <span id="L_d906">L_d906</span>          dec     SpawnTimer_Lo           
+d906: ce 0a 07     <span id="DeathPause_DecSite">DeathPause_DecSite</span>dec     SpawnTimer_Lo           
 d909: f0 19                        beq     <a href="#L_d924">L_d924</a>                  
 d90b: 20 82 de                     jsr     <a href="#L_de82">L_de82</a>                  
 d90e: a9 40                        lda     #$40                    
@@ -6347,7 +6347,7 @@ d915: 8d a8 03                     sta     $03a8
 d918: 8d a9 03                     sta     $03a9                   
 d91b: 20 4c 80                     jsr     <a href="#L_804c">L_804c</a>                  
 d91e: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
-d921: 4c 06 d9                     jmp     <a href="#L_d906">L_d906</a>                  
+d921: 4c 06 d9                     jmp     <a href="#DeathPause_DecSite">DeathPause_DecSite</a>      
 d924: ad 37 04     <span id="L_d924">L_d924</span>          lda     Respawn_Count           
 d927: d0 1d                        bne     <a href="#L_d946">L_d946</a>                  
 d929: ad 8e 04     <span id="L_d929">L_d929</span>          lda     Entity_Active           
