@@ -55,6 +55,54 @@ def decode(code):
         return addr, value, compare
 
 
+def encode(addr, value, compare=None):
+    """Inverse of decode(). Returns a 6-letter code if compare is None,
+    else an 8-letter code. Useful for proposing a Game Genie code that
+    patches a specific ROM byte."""
+    if not (0x8000 <= addr <= 0xffff):
+        sys.exit(f'Game Genie addr must be in $8000..$ffff, got ${addr:04x}')
+    if not (0 <= value <= 0xff):
+        sys.exit(f'value must be a byte, got {value}')
+    if compare is not None and not (0 <= compare <= 0xff):
+        sys.exit(f'compare must be a byte, got {compare}')
+
+    # Each n[i] holds 4 bits scattered across addr/value/compare.
+    # See decode() for the forward mapping; this just inverts it.
+    n = [0] * (8 if compare is not None else 6)
+    n[0] = (value & 7) | ((value >> 4) & 8)        # val0..2 + val7
+    n[1] = ((value >> 4) & 7) | ((addr >> 4) & 8)  # val4..6 + addr7
+    n[2] = ((addr >> 4) & 7)                       # addr4..6 + format flag
+    if compare is not None:
+        n[2] |= 8
+    n[3] = ((addr >> 12) & 7) | (addr & 8)         # addr12..14 + addr3
+    n[4] = (addr & 7) | ((addr >> 8) & 8)          # addr0..2 + addr11
+    n[5] = (addr >> 8) & 7                         # addr8..10 + see below
+    if compare is None:
+        n[5] |= (value & 8)                        # val3
+    else:
+        n[5] |= (compare & 8)                      # cmp3
+        n[6] = (compare & 7) | ((compare >> 4) & 8)  # cmp0..2 + cmp7
+        n[7] = ((compare >> 4) & 7) | (value & 8)    # cmp4..6 + val3
+
+    return ''.join(ALPHABET[x] for x in n)
+
+
+def _self_test():
+    """Roundtrip every documented cheat from labels.json."""
+    cases = [
+        'IESUTYZA', 'IAKUUAZA', 'IASUOAZA', 'PASIOALE',
+        'SZXLKEVK', 'SZKULGAX', 'OZVULSPX', 'OZOYUEPX',
+        'SZESPUVK', 'AEUSGZAP', 'PAEIXKNY',
+    ]
+    for code in cases:
+        addr, value, compare = decode(code)
+        again = encode(addr, value, compare)
+        assert again == code, f'{code} -> ${addr:04x},${value:02x},{compare} -> {again}'
+        print(f'  {code}  ${addr:04x} <- ${value:02x}'
+              f'{f" (if ${compare:02x})" if compare is not None else ""}  ok')
+    print(f'roundtrip: {len(cases)}/{len(cases)} ok')
+
+
 def lookup_in_html(addr, html_path='1942.html'):
     """Find the disassembly line for `addr` and the surrounding context."""
     pat = re.compile(rf'^{addr:04x}: ')
@@ -95,13 +143,37 @@ def lookup_in_html(addr, html_path='1942.html'):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('codes', nargs='+',
+    ap.add_argument('codes', nargs='*',
                     help='6- or 8-letter Game Genie code(s)')
     ap.add_argument('--html', default='1942.html',
                     help='disassembly HTML to look up addresses in')
     ap.add_argument('--no-context', action='store_true',
                     help='just print decoded address/value, skip disassembly lookup')
+    ap.add_argument('--encode', nargs='+', metavar='ADDR,VAL[,CMP]',
+                    help='encode address,value[,compare] tuples to codes')
+    ap.add_argument('--test', action='store_true',
+                    help='roundtrip-test encode against documented cheats')
     args = ap.parse_args()
+
+    if args.test:
+        _self_test()
+        return
+
+    if args.encode:
+        for spec in args.encode:
+            parts = [int(p, 0) for p in spec.split(',')]
+            if len(parts) == 2:
+                addr, value = parts
+                compare = None
+            elif len(parts) == 3:
+                addr, value, compare = parts
+            else:
+                sys.exit(f'bad --encode spec {spec!r} (want addr,val[,cmp])')
+            code = encode(addr, value, compare)
+            tail = f' (if ${compare:02x})' if compare is not None else ''
+            print(f'  ${addr:04x} <- ${value:02x}{tail}  ->  {code}')
+        if not args.codes:
+            return
 
     for code in args.codes:
         addr, value, compare = decode(code)

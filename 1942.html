@@ -165,8 +165,9 @@ Entity_AnimTick = $0682  ; entity SOA attribute 20: per-entity animation tick, a
 Entity_FrameTick = $069b  ; entity SOA attribute 21: per-entity update-tick counter. Initialized to $ff at every entity activation ($b4ba, $b5c8, $ee76 in EnemyType_DispatchInit) so the first INC wraps to 0. Each per-entity update INCs it ($b4e0, $b5da, $d1a5, etc.) and immediately reads the new value to drive periodic state changes: e.g. $b4e6 does `lsr A / and #$0f / cmp #$02` and stores a sprite tile to Entity_SpriteTile when the cycle is 0 or 1 (2-frame stretches in a 16-step animation), and $b5e0 does `and #$03 / bne / inc Entity_TypeParam12` to bump TypeParam12 every 4 ticks. Cleared by EntityClear_Slot
 Entity_TypeParam22 = $06b4  ; entity SOA attribute 22: per-type init constant in the persistent SOA band. Observed values: type 0 -> $44 (set at $ee9d), type 1 -> $5c ($eec0), type 7 -> $48 ($ef1f), and $20 from the non-dispatch init at $b614 (player-bullet-style entity). Confirmed live: enemy_observe slot 21 took on $44 right after a wave spawned (type 0). Survives EntityClear_Slot — likely a per-spawn parameter the entity refers to throughout its life (animation timer reset, collision-box dimension, or score-value-id)
 Entity_SpawnTypeRaw = $06cd  ; entity SOA attribute 23: per-slot raw enemy-type id as written by the spawn-script reader at $da3b-$da4d (which fills four consecutive slots Y..Y+3 from scratchpad bytes $b1/$b2/$b2/$b3 — a 4-enemy formation packet). Later copied into Entity_TypeId at $dadf when the slot is activated by Entity_ActivateFromSpawnTable. Survives EntityClear_Slot resets — that's why it's in the persistent-attrs band (4, 13, 19-24)
-TitleMenu_FrameTimer = $070b  ; title-screen frame counter for the menu-cursor blink: initialized to $ff at $b6c0 just before the menu loop entry, decremented every iteration at $b744. When (timer & 3)==0 the loop falls through to the cursor-blink eor at $b74e-b75a (the 5-byte mask at TitleMenu_CursorMask). Confirmed via idle_titlescreen drift: SAW with constant -50 step over 150-frame chunks (consistent with one dec per frame, modulo wrap)
-Bullet_SpawnPending = $0719  ; $01 written by Spawn_Bullet alongside Bullet_TargetSlot — likely a one-shot 'spawn requested' flag consumed by the entity update pass
+SpawnTimer_Lo = $070a  ; low byte of a 16-bit gameplay countdown timer paired with $070b ($070b is the high byte). The 16-bit decrement at $db4a-$db57 implements `dec $070a / lda $070a / cmp #$ff / bne done / dec $070b` — classic 16-bit borrow-propagation. When both bytes hit zero ($db45 `ora $070b / beq init_path`), the init path at $db5a-$db6f reloads the timer from the 4-byte record at `$ebdd + ($0709 << 2)` (lo into $070a, hi into $070b) and sets $070c = $01 as the 'timer expired' signal. So $0709 selects which entry of the $ebdd table to use (wave/scene index), and $070c is the 1-shot expiry flag the consumer reads
+TitleMenu_FrameTimer = $070b  ; DUAL-PURPOSE byte. (1) Title-screen role: cursor-blink frame counter — init $ff at $b6c0 before the menu loop, dec'd every iteration at $b744 (TitleBlink_DecSite). When (timer & 3)==0 the loop runs the cursor-blink eor at $b74e-b75a (TitleMenu_CursorMask). Confirmed via idle_titlescreen drift: SAW with constant -50 step over 150-frame chunks. Game Genie SZGLGN (6-letter $b744 ← $ad) freezes this dec — confirmed: drift goes from SAW to FLAT. (2) Gameplay role: high byte of the 16-bit SpawnTimer paired with SpawnTimer_Lo ($070a). Decremented at $db54 only when $070a underflows. Reloaded from `$ebdd + ($0709 << 2)` when the timer hits zero. Game Genie SZIIKU ($db54 ← $ad) freezes the borrow propagation — gameplay timer then wraps within a 256-tick window instead of the full 16-bit range. The same RAM byte serves both roles because the title-screen and gameplay phases never run simultaneously
+Bullet_SpawnPending = $0719  ; one-shot 'spawn requested' flag. Set to $01 by Spawn_Bullet at $d3c0 alongside Bullet_TargetSlot. Consumed by the sole decrementer at $d45f (BulletPending_DecSite), which clears it back to $00 within a frame. Game Genie SZISYK (6-letter unconditional poke of $d45f ← $ad) patches the dec opcode to lda — confirmed via `drift.py fire_observe --genie SZISYK`: the byte transitions $00 → $01 on the B-press snapshot and STAYS at $01 forever instead of being consumed. The downstream consumer that reads $0719 doesn't fire repeatedly even when the flag stays set — bullet still spawns just once per press
 Bullet_TargetSlot = $071a  ; $0b written by Spawn_Bullet — the entity slot index ($0b = 11) where the new bullet is being installed. Read at L_d3c3 to look up Entity_Active,Y
 Spawn_PatternIndex = $071f  ; 8-state rotating index used by the enemy-spawn routine. Read at $f054 / $f176 / $f34c / $f42c (each masks `and #$07`, ASLs twice to get a 4-byte stride, indexes the spawn-parameter table at $f12e to fetch four per-spawn fields), then incremented in place. Drives wave-pattern variety
 HUD_BlinkSubcount = $0725  ; frames-of-current-second for the HUD blink driver: incremented every NMI at $c136 (after the entity-decay loop and SP restore), reset to 0 when it hits $3c (60). Only ticks when P1_Active is set
@@ -3721,10 +3722,10 @@ b731: a5 98        <span id="L_b731">L_b731</span>          lda     Joypad1_Stat
 b733: 29 10                        and     #$10                    
 b735: f0 08                        beq     <a href="#L_b73f">L_b73f</a>                  
 b737: ad 88 03                     lda     Button_DebounceFlags    
-b73a: d0 08                        bne     <a href="#L_b744">L_b744</a>                  
+b73a: d0 08                        bne     <a href="#TitleBlink_DecSite">TitleBlink_DecSite</a>      
 b73c: 4c 5e b7                     jmp     <a href="#L_b75e">L_b75e</a>                  
 b73f: a9 00 8d 88 ..<span id="D_b73f">D_b73f</span>          .byte   $a9, $00, $8d, $88, $03
-b744: ce 0b 07     <span id="L_b744">L_b744</span>          dec     TitleMenu_FrameTimer    
+b744: ce 0b 07     <span id="TitleBlink_DecSite">TitleBlink_DecSite</span>dec     TitleMenu_FrameTimer    
 b747: ad 0b 07                     lda     TitleMenu_FrameTimer    
 b74a: 29 03                        and     #$03                    
 b74c: d0 0d                        bne     <a href="#L_b75b">L_b75b</a>                  
@@ -5896,7 +5897,7 @@ d455: a9 01        <span id="L_d455">L_d455</span>          lda     #$01
 d457: 99 f2 04                     sta     Entity_Class,Y          
 d45a: a9 14                        lda     #$14                    
 d45c: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
-d45f: ce 19 07                     dec     Bullet_SpawnPending     
+d45f: ce 19 07     <span id="BulletPending_DecSite">BulletPending_DecSite</span>dec     Bullet_SpawnPending     
 d462: f0 0d                        beq     <a href="#L_d471">L_d471</a>                  
 d464: ee 1a 07                     inc     Bullet_TargetSlot       
 d467: ac 1a 07                     ldy     Bullet_TargetSlot       
@@ -6335,8 +6336,8 @@ d8fa: 90 f1                        bcc     <a href="#L_d8ed">L_d8ed</a>
 d8fc: a9 ff                        lda     #$ff                    
 d8fe: 8d 8c 07                     sta     $078c                   
 d901: a9 3c                        lda     #$3c                    
-d903: 8d 0a 07                     sta     $070a                   
-d906: ce 0a 07     <span id="L_d906">L_d906</span>          dec     $070a                   
+d903: 8d 0a 07                     sta     SpawnTimer_Lo           
+d906: ce 0a 07     <span id="L_d906">L_d906</span>          dec     SpawnTimer_Lo           
 d909: f0 19                        beq     <a href="#L_d924">L_d924</a>                  
 d90b: 20 82 de                     jsr     <a href="#L_de82">L_de82</a>                  
 d90e: a9 40                        lda     #$40                    
@@ -6491,7 +6492,7 @@ da61: 0a                           asl     A
 da62: 0a                           asl     A                       
 da63: a8                           tay                             
 da64: b9 dd eb                     lda     $ebdd,Y                 
-da67: 8d 0a 07                     sta     $070a                   
+da67: 8d 0a 07                     sta     SpawnTimer_Lo           
 da6a: c8                           iny                             
 da6b: b9 dd eb                     lda     $ebdd,Y                 
 da6e: 8d 0b 07                     sta     TitleMenu_FrameTimer    
@@ -6591,14 +6592,14 @@ db39: e5 b0                        sbc     $b0
 db3b: 90 db                        bcc     <a href="#L_db18">L_db18</a>                  
 db3d: f0 d9                        beq     <a href="#L_db18">L_db18</a>                  
 db3f: 99 cd 06                     sta     Entity_SpawnTypeRaw,Y   
-db42: ad 0a 07     <span id="L_db42">L_db42</span>          lda     $070a                   
+db42: ad 0a 07     <span id="L_db42">L_db42</span>          lda     SpawnTimer_Lo           
 db45: 0d 0b 07                     ora     TitleMenu_FrameTimer    
 db48: f0 10                        beq     <a href="#L_db5a">L_db5a</a>                  
-db4a: ce 0a 07                     dec     $070a                   
-db4d: ad 0a 07                     lda     $070a                   
+db4a: ce 0a 07     <span id="SpawnTimerLo_DecSite">SpawnTimerLo_DecSite</span>dec     SpawnTimer_Lo           
+db4d: ad 0a 07                     lda     SpawnTimer_Lo           
 db50: c9 ff                        cmp     #$ff                    
 db52: d0 1e                        bne     <a href="#L_db72">L_db72</a>                  
-db54: ce 0b 07                     dec     TitleMenu_FrameTimer    
+db54: ce 0b 07     <span id="SpawnTimerHi_DecSite">SpawnTimerHi_DecSite</span>dec     TitleMenu_FrameTimer    
 db57: 4c 72 db                     jmp     <a href="#L_db72">L_db72</a>                  
 db5a: a9 01        <span id="L_db5a">L_db5a</span>          lda     #$01                    
 db5c: 8d 0c 07                     sta     $070c                   
@@ -6607,7 +6608,7 @@ db62: 0a                           asl     A
 db63: 0a                           asl     A                       
 db64: a8                           tay                             
 db65: b9 dd eb                     lda     $ebdd,Y                 
-db68: 8d 0a 07                     sta     $070a                   
+db68: 8d 0a 07                     sta     SpawnTimer_Lo           
 db6b: c8                           iny                             
 db6c: b9 dd eb                     lda     $ebdd,Y                 
 db6f: 8d 0b 07                     sta     TitleMenu_FrameTimer    
@@ -7150,8 +7151,8 @@ e0c2: d0 df                        bne     <a href="#L_e0a3">L_e0a3</a>
 e0c4: a9 80                        lda     #$80                    
 e0c6: 8d 8c 07                     sta     $078c                   
 e0c9: a9 3c                        lda     #$3c                    
-e0cb: 8d 0a 07                     sta     $070a                   
-e0ce: ce 0a 07     <span id="L_e0ce">L_e0ce</span>          dec     $070a                   
+e0cb: 8d 0a 07                     sta     SpawnTimer_Lo           
+e0ce: ce 0a 07     <span id="L_e0ce">L_e0ce</span>          dec     SpawnTimer_Lo           
 e0d1: f0 16                        beq     <a href="#L_e0e9">L_e0e9</a>                  
 e0d3: a9 40                        lda     #$40                    
 e0d5: 8d a7 03                     sta     $03a7                   
