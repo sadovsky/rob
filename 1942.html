@@ -4928,7 +4928,7 @@ c2e8: a5 62        <span id="L_c2e8">L_c2e8</span>          lda     VBlank_Count
 c2ea: c9 03                        cmp     #$03                    
 c2ec: 90 fa                        bcc     <a href="#L_c2e8">L_c2e8</a>                  
 c2ee: a9 00                        lda     #$00                    
-c2f0: 85 62                        sta     VBlank_Counter          
+c2f0: 85 62        <span id="VBlankRateLimit_StoreSite">VBlankRateLimit_StoreSite</span>sta     VBlank_Counter          
 c2f2: 4c c0 c2                     jmp     <a href="#Main_Loop">Main_Loop</a>               
 c2f5: 86 00        <span id="Coroutine_Resume">Coroutine_Resume</span>stx     Coroutine_ScanPos       
 c2f7: b5 03                        lda     $03,X                   
@@ -5756,7 +5756,7 @@ d2a0: 9d 88 05 ad ..<span id="D_d2a0">D_d2a0</span>          .byte   $9d, $88, $
 d2a8: 05                           .byte   $05
 d2a9: 60           <span id="D_d2a9">D_d2a9</span>          .byte   $60
 d2aa: ad 85 07     <span id="Fire_Handler">Fire_Handler</span>    lda     Buttons_Held            
-d2ad: 29 40                        and     #$40                    
+d2ad: 29 40        <span id="FireButton_AndOpcode">FireButton_AndOpcode</span>and     #$40                    
 d2af: f0 24                        beq     <a href="#L_d2d5">L_d2d5</a>                  
 d2b1: ad 88 03                     lda     Button_DebounceFlags    
 d2b4: 29 10                        and     #$10                    
