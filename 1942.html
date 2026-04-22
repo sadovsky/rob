@@ -99,7 +99,7 @@ Fire_HoldCounter = $00db  ; frames the B (Fire) button has been held; Fire_Handl
 P2_Active    = $0384  ; companion to P1_Active; tested by P1_LifeLost at $b80a to decide whether to swap players or game-over
 P1_Active    = $0385  ; $ff while P1 is the active player; cleared on game-over. Set at $b7da during NewGame_Init_P1
 Active_Player_Index = $0386  ; 0 = P1 currently playing, 1 = P2 currently playing. NewGame_Init_P1 inits to 0; SwapTo_P2 sets to 1, SwapTo_P1 / Restore_P1_NoSave set to 0
-Fire_DebounceFlag = $0388  ; bit $10 = B (Fire) held last frame; set by Fire_Handler (L_d2aa) to detect the rising edge of B
+Button_DebounceFlags = $0388  ; per-button 'held last frame' flags consumed by the input dispatchers. bit $10 = B (Fire), set/cleared by Fire_Handler ($d2aa); bit $01 = A (Roll), set/cleared by Roll_Handler at $d214. Each handler does a rising-edge detect against its own bit
 PPU_QueueReady = $03ae  ; nonzero -> NMI_Handler walks the PPU_UpdateQueue. NMI clears it on completion ($c07e); set by the queue builder at $81e2
 Player_OAM_Y = $03af  ; shadow-OAM mirror of Entity_Y[0] (player)
 Player_OAM_X = $03b2  ; shadow-OAM mirror of Entity_X[0] (player), written via DMA
@@ -3662,7 +3662,7 @@ b72c: 0a 07 4c d3 ..                .byte   $0a, $07, $4c, $d3, $b6
 b731: a5 98        <span id="L_b731">L_b731</span>          lda     Joypad1_State           
 b733: 29 10                        and     #$10                    
 b735: f0 08                        beq     <a href="#L_b73f">L_b73f</a>                  
-b737: ad 88 03                     lda     Fire_DebounceFlag       
+b737: ad 88 03                     lda     Button_DebounceFlags    
 b73a: d0 08                        bne     <a href="#L_b744">L_b744</a>                  
 b73c: 4c 5e b7                     jmp     <a href="#L_b75e">L_b75e</a>                  
 b73f: a9 00 8d 88 ..<span id="D_b73f">D_b73f</span>          .byte   $a9, $00, $8d, $88, $03
@@ -5652,7 +5652,7 @@ d208: 9d 24 05                     sta     $0524,X
 d20b: 20 d7 b1                     jsr     <a href="#L_b1d7">L_b1d7</a>                  
 d20e: 20 7b b3                     jsr     <a href="#L_b37b">L_b37b</a>                  
 d211: 4c b5 d1                     jmp     <a href="#L_d1b5">L_d1b5</a>                  
-d214: 20 9b d7 f0 ..                .byte   $20, $9b, $d7, $f0, $08, $20, $cf, $b3
+d214: 20 9b d7 f0 ..<span id="D_d214">D_d214</span>          .byte   $20, $9b, $d7, $f0, $08, $20, $cf, $b3
 d21c: f0 03 4c a5 ..                .byte   $f0, $03, $4c, $a5, $d5, $ad, $85, $07
 d224: 29 80 d0 03 ..                .byte   $29, $80, $d0, $03, $4c, $40, $d2, $ad
 d22c: 88 03 29 01 ..                .byte   $88, $03, $29, $01, $d0, $16, $ad, $88
@@ -5660,7 +5660,7 @@ d234: 03 09 01 8d ..                .byte   $03, $09, $01, $8d, $88, $03, $20, $
 d23c: d3 4c 48 d2 ..                .byte   $d3, $4c, $48, $d2, $ad, $88, $03, $29
 d244: fe 8d 88 03                  .byte   $fe, $8d, $88, $03
 d248: 20 aa d2     <span id="L_d248">L_d248</span>          jsr     <a href="#Fire_Handler">Fire_Handler</a>            
-d24b: 20 72 d4                     jsr     <a href="#L_d472">L_d472</a>                  
+d24b: 20 72 d4                     jsr     <a href="#DPad_Handler">DPad_Handler</a>            
 d24e: ad 37 04                     lda     Respawn_Count           
 d251: c9 ff                        cmp     #$ff                    
 d253: d0 03                        bne     <a href="#L_d258">L_d258</a>                  
@@ -5699,12 +5699,12 @@ d2a9: 60           <span id="D_d2a9">D_d2a9</span>          .byte   $60
 d2aa: ad 85 07     <span id="Fire_Handler">Fire_Handler</span>    lda     Buttons_Held            
 d2ad: 29 40                        and     #$40                    
 d2af: f0 24                        beq     <a href="#L_d2d5">L_d2d5</a>                  
-d2b1: ad 88 03                     lda     Fire_DebounceFlag       
+d2b1: ad 88 03                     lda     Button_DebounceFlags    
 d2b4: 29 10                        and     #$10                    
 d2b6: d0 0b                        bne     <a href="#L_d2c3">L_d2c3</a>                  
-d2b8: ad 88 03                     lda     Fire_DebounceFlag       
+d2b8: ad 88 03                     lda     Button_DebounceFlags    
 d2bb: 09 10                        ora     #$10                    
-d2bd: 8d 88 03                     sta     Fire_DebounceFlag       
+d2bd: 8d 88 03                     sta     Button_DebounceFlags    
 d2c0: 4c cb d2                     jmp     <a href="#L_d2cb">L_d2cb</a>                  
 d2c3: e6 db        <span id="L_d2c3">L_d2c3</span>          inc     Fire_HoldCounter        
 d2c5: a5 db                        lda     Fire_HoldCounter        
@@ -5723,10 +5723,10 @@ d2e6: a2 02                        ldx     #$02
 d2e8: 20 5b d2                     jsr     <a href="#L_d25b">L_d25b</a>                  
 d2eb: 20 d7 b1                     jsr     <a href="#L_b1d7">L_b1d7</a>                  
 d2ee: a2 00                        ldx     #$00                    
-d2f0: 4c 72 d4                     jmp     <a href="#L_d472">L_d472</a>                  
+d2f0: 4c 72 d4                     jmp     <a href="#DPad_Handler">DPad_Handler</a>            
 d2f3: a9 00 8d 0b ..<span id="D_d2f3">D_d2f3</span>          .byte   $a9, $00, $8d, $0b, $05, $4c, $9a, $d1
 d2fb: a9 08 8d 0b ..<span id="D_d2fb">D_d2fb</span>          .byte   $a9, $08, $8d, $0b, $05, $4c, $9a, $d1
-d303: ad 36 04 d0 ..                .byte   $ad, $36, $04, $d0, $01, $60, $ce, $36
+d303: ad 36 04 d0 ..<span id="D_d303">D_d303</span>          .byte   $ad, $36, $04, $d0, $01, $60, $ce, $36
 d30b: 04 ad 8e 04 ..                .byte   $04, $ad, $8e, $04, $09, $10, $8d, $8e
 d313: 04 a9 00 8d ..                .byte   $04, $a9, $00, $8d, $9b, $06, $a9, $15
 d31b: 20 6b a0 20 ..                .byte   $20, $6b, $a0, $20, $de, $d2, $20, $f3

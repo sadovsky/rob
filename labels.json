@@ -19,7 +19,7 @@
   "$03b2": ["Player_OAM_X",   "shadow-OAM mirror of Entity_X[0] (player), written via DMA"],
   "$03af": ["Player_OAM_Y",   "shadow-OAM mirror of Entity_Y[0] (player)"],
   "$00db": ["Fire_HoldCounter", "frames the B (Fire) button has been held; Fire_Handler (L_d2aa) increments while held and rolls over at 10 to call Spawn_Bullet — that's the auto-fire repeat rate (~10 frames between bullets when B is held)"],
-  "$0388": ["Fire_DebounceFlag","bit $10 = B (Fire) held last frame; set by Fire_Handler (L_d2aa) to detect the rising edge of B"],
+  "$0388": ["Button_DebounceFlags","per-button 'held last frame' flags consumed by the input dispatchers. bit $10 = B (Fire), set/cleared by Fire_Handler ($d2aa); bit $01 = A (Roll), set/cleared by Roll_Handler at $d214. Each handler does a rising-edge detect against its own bit"],
   "$0785": ["Buttons_Held",   "current-frame joypad state stored MSB-first (A=$80, B=$40, SEL=$20, START=$10, UP=$08, DOWN=$04, LEFT=$02, RIGHT=$01). NOTE: bit ordering is the OPPOSITE of $98/$9a (which are LSB-first from Joypad_PollOne) — this byte is filled elsewhere in the input stack. Fire_Handler tests bit $40 (B); the input handlers at L_d472 / L_dc54 consume this same byte"],
 
   "$0386": ["Active_Player_Index","0 = P1 currently playing, 1 = P2 currently playing. NewGame_Init_P1 inits to 0; SwapTo_P2 sets to 1, SwapTo_P1 / Restore_P1_NoSave set to 0"],
@@ -59,5 +59,9 @@
   "$0719": ["Bullet_SpawnPending", "$01 written by Spawn_Bullet alongside Bullet_TargetSlot — likely a one-shot 'spawn requested' flag consumed by the entity update pass"],
   "$071a": ["Bullet_TargetSlot",   "$0b written by Spawn_Bullet — the entity slot index ($0b = 11) where the new bullet is being installed. Read at L_d3c3 to look up Entity_Active,Y"],
 
-  "$0437": ["Respawn_Count", "INC at L_e1e0 each time the player respawns; cleared to 0 by NewGame_Init paths and by debe (post-game-over re-init). Confirmed live: across a 5-death autofire run this byte went 0,0,1,1,2,3,3,4,5 (one increment per death). Tested at >10 sites as a 'have we died yet?' flag (e.g. d09a, d68b — those branches just want nonzero, not the count)"]
+  "$0437": ["Respawn_Count", "INC at L_e1e0 each time the player respawns; cleared to 0 by NewGame_Init paths and by debe (post-game-over re-init). Confirmed live: across a 5-death autofire run this byte went 0,0,1,1,2,3,3,4,5 (one increment per death). Tested at >10 sites as a 'have we died yet?' flag (e.g. d09a, d68b — those branches just want nonzero, not the count)"],
+
+  "$d214": ["Roll_Handler",  "A (Roll/Loop) button handler. Sits in a .byte block the disassembler couldn't reach (entered via jmp $d214 at $d1dc). Pre-checks via jsr $d79b / jsr $b3cf (likely 'is player alive and idle'), then tests bit $80 of Buttons_Held; on rising edge sets bit $01 of Button_DebounceFlags and JSR Roll_Attempt ($d303). Falls through into Fire_Handler ($d248) so both buttons get serviced each frame. Confirmed live: press_a scenario decrements Rolls 03→02 and sets Entity_Active[0] bit 4"],
+  "$d303": ["Roll_Attempt",  "if Rolls == 0 RTS, else DEC Rolls. Three-instruction routine sitting in a .byte block ($ad $36 $04 $d0 $01 $60 $ce $36 $04). Called from Roll_Handler ($d23a) on the rising edge of A. This is the gate that makes the A button consume one roll"],
+  "$d472": ["DPad_Handler",  "movement (D-pad) input handler. Tests low 4 bits of Buttons_Held ($0f mask = UP|DOWN|LEFT|RIGHT in the MSB-first storage). Called by L_d24b right after Fire_Handler/Roll_Handler. To be fully labeled in batch B"]
 }
