@@ -145,6 +145,8 @@ Entity_PosY_FracLo = $0556  ; entity SOA attribute 8: lowest sub-pixel byte of t
 Entity_PosX_HiBit = $056f  ; entity SOA attribute 9: high bit of the 24-bit X position. Updated at $b0a2-b0aa where `lda $0396 / adc $056f,X / and #$01 / sta $056f,X` propagates the X-add carry. Pairs with Entity_PosX_FracMid ($0588, attr 10), Entity_PosX_FracLo ($05a1, attr 11), and displayed integer Entity_X ($04c0, attr 2)
 Entity_PosX_FracMid = $0588  ; entity SOA attribute 10: middle byte of the 24-bit X position. The physics-tick at $b099-b09f does `lda $0397 / adc $0588,X / sta $0588,X` (adds X-velocity mid byte). Carries up into Entity_PosX_HiBit. Confirmed live: copied during slot-clone at $b1bf, also written at the bullet-init site $d080
 Entity_PosX_FracLo = $05a1  ; entity SOA attribute 11: lowest sub-pixel byte of the X position. The physics-tick at $b08f-b096 does `lda $0398 / clc / adc $05a1,X / sta $05a1,X` (adds X-velocity low byte). Carries into Entity_PosX_FracMid. Confirmed live: copied during slot-clone at $b1b9, cleared at the bullet-init site $d088
+Entity_TypeId = $05d3  ; entity SOA attribute 13: per-slot enemy/entity type id. Read at $ee79 by EnemyType_DispatchInit which `asl A / tay / lda $eff2,Y / sta PPU_SrcLo / iny / lda $eff2,Y / sta PPU_SrcHi / jmp ($008a)` — i.e. uses the type as an index into the 16-bit pointer table EnemyType_InitDispatch ($eff2) and dispatches to the matching per-type init routine. Confirmed live: enemy_observe drift saw values 03 and 0a appear in slots 14/18/19/20 right after spawns; type 10 ($0a) maps to dispatch entry $ef49
+Entity_SpawnTypeRaw = $06cd  ; entity SOA attribute 23: per-slot raw enemy-type id as written by the spawn-script reader at $da3b-$da4d (which fills four consecutive slots Y..Y+3 from scratchpad bytes $b1/$b2/$b2/$b3 — a 4-enemy formation packet). Later copied into Entity_TypeId at $dadf when the slot is activated by Entity_ActivateFromSpawnTable. Survives EntityClear_Slot resets — that's why it's in the persistent-attrs band (4, 13, 19-24)
 TitleMenu_FrameTimer = $070b  ; title-screen frame counter for the menu-cursor blink: initialized to $ff at $b6c0 just before the menu loop entry, decremented every iteration at $b744. When (timer & 3)==0 the loop falls through to the cursor-blink eor at $b74e-b75a (the 5-byte mask at TitleMenu_CursorMask). Confirmed via idle_titlescreen drift: SAW with constant -50 step over 150-frame chunks (consistent with one dec per frame, modulo wrap)
 Bullet_SpawnPending = $0719  ; $01 written by Spawn_Bullet alongside Bullet_TargetSlot — likely a one-shot 'spawn requested' flag consumed by the entity update pass
 Bullet_TargetSlot = $071a  ; $0b written by Spawn_Bullet — the entity slot index ($0b = 11) where the new bullet is being installed. Read at L_d3c3 to look up Entity_Active,Y
@@ -3432,7 +3434,7 @@ b438: d0 07                        bne     <a href="#L_b441">L_b441</a>
 b43a: b9 d9 04                     lda     $04d9,Y                 
 b43d: c9 79                        cmp     #$79                    
 b43f: f0 0f                        beq     <a href="#L_b450">L_b450</a>                  
-b441: b9 d3 05     <span id="L_b441">L_b441</span>          lda     $05d3,Y                 
+b441: b9 d3 05     <span id="L_b441">L_b441</span>          lda     Entity_TypeId,Y         
 b444: c9 ff                        cmp     #$ff                    
 b446: 90 03                        bcc     <a href="#Collision_Player_JSR">Collision_Player_JSR</a>    
 b448: 4c c5 b4                     jmp     <a href="#L_b4c5">L_b4c5</a>                  
@@ -3444,7 +3446,7 @@ b453: 90 d5                        bcc     <a href="#L_b42a">L_b42a</a>
 b455: 18           <span id="L_b455">L_b455</span>          clc                             
 b456: 60                           rts                             
 b457: 38 60        <span id="D_b457">D_b457</span>          .byte   $38, $60
-b459: b9 d3 05     <span id="L_b459">L_b459</span>          lda     $05d3,Y                 
+b459: b9 d3 05     <span id="L_b459">L_b459</span>          lda     Entity_TypeId,Y         
 b45c: c9 20                        cmp     #$20                    
 b45e: b0 0b                        bcs     <a href="#L_b46b">L_b46b</a>                  
 b460: b9 8e 04     <span id="L_b460">L_b460</span>          lda     Entity_Active,Y         
@@ -3455,7 +3457,7 @@ b46b: b9 ec 05     <span id="L_b46b">L_b46b</span>          lda     $05ec,Y
 b46e: 18                           clc                             
 b46f: 69 01                        adc     #$01                    
 b471: 99 ec 05                     sta     $05ec,Y                 
-b474: b9 d3 05                     lda     $05d3,Y                 
+b474: b9 d3 05                     lda     Entity_TypeId,Y         
 b477: c9 ff                        cmp     #$ff                    
 b479: b0 18                        bcs     <a href="#L_b493">L_b493</a>                  
 b47b: c9 30                        cmp     #$30                    
@@ -3621,7 +3623,7 @@ b60c: 20 75 c2 4c ..<span id="D_b60c">D_b60c</span>          .byte   $20, $75, $
 b612: a9 20        <span id="L_b612">L_b612</span>          lda     #$20                    
 b614: 9d b4 06                     sta     $06b4,X                 
 b617: a9 02                        lda     #$02                    
-b619: 9d d3 05                     sta     $05d3,X                 
+b619: 9d d3 05                     sta     Entity_TypeId,X         
 b61c: 20 9c f1                     jsr     <a href="#L_f19c">L_f19c</a>                  
 b61f: a9 79                        lda     #$79                    
 b621: 9d d9 04                     sta     $04d9,X                 
@@ -6406,7 +6408,7 @@ d9c9: 4c 81 da                     jmp     <a href="#L_da81">L_da81</a>
 d9cc: 4c 71 da     <span id="D_d9cc">D_d9cc</span>          .byte   $4c, $71, $da
 d9cf: c8 b1 d4 cd ..<span id="D_d9cf">D_d9cf</span>          .byte   $c8, $b1, $d4, $cd, $a0, $03, $b0, $03
 d9d7: 4c 81 da a0 ..                .byte   $4c, $81, $da, $a0, $00
-d9dc: b9 cd 06     <span id="L_d9dc">L_d9dc</span>          lda     $06cd,Y                 
+d9dc: b9 cd 06     <span id="L_d9dc">L_d9dc</span>          lda     Entity_SpawnTypeRaw,Y   
 d9df: c9 ff                        cmp     #$ff                    
 d9e1: f0 0f                        beq     <a href="#L_d9f2">L_d9f2</a>                  
 d9e3: 98                           tya                             
@@ -6450,18 +6452,18 @@ da33: b9 19 eb                     lda     $eb19,Y
 da36: 85 b4                        sta     $b4                     
 da38: ac 1e 07                     ldy     $071e                   
 da3b: a5 b1                        lda     $b1                     
-da3d: 99 cd 06                     sta     $06cd,Y                 
+da3d: 99 cd 06                     sta     Entity_SpawnTypeRaw,Y   
 da40: c8                           iny                             
 da41: a5 b2                        lda     $b2                     
-da43: 99 cd 06                     sta     $06cd,Y                 
+da43: 99 cd 06                     sta     Entity_SpawnTypeRaw,Y   
 da46: c8                           iny                             
-da47: 99 cd 06                     sta     $06cd,Y                 
+da47: 99 cd 06                     sta     Entity_SpawnTypeRaw,Y   
 da4a: c8                           iny                             
 da4b: a5 b3                        lda     $b3                     
-da4d: 99 cd 06                     sta     $06cd,Y                 
+da4d: 99 cd 06                     sta     Entity_SpawnTypeRaw,Y   
 da50: c8                           iny                             
 da51: a5 b4                        lda     $b4                     
-da53: 99 cd 06                     sta     $06cd,Y                 
+da53: 99 cd 06                     sta     Entity_SpawnTypeRaw,Y   
 da56: a0 02                        ldy     #$02                    
 da58: b1 d4                        lda     ($d4),Y                 
 da5a: c9 10                        cmp     #$10                    
@@ -6486,15 +6488,15 @@ da7e: 4c b2 d9                     jmp     <a href="#L_d9b2">L_d9b2</a>
 da81: a9 00        <span id="L_da81">L_da81</span>          lda     #$00                    
 da83: 8d 1e 07                     sta     $071e                   
 da86: ac 1e 07     <span id="L_da86">L_da86</span>          ldy     $071e                   
-da89: b9 cd 06                     lda     $06cd,Y                 
+da89: b9 cd 06                     lda     Entity_SpawnTypeRaw,Y   
 da8c: c9 ff                        cmp     #$ff                    
 da8e: f0 0c                        beq     <a href="#L_da9c">L_da9c</a>                  
 da90: c8                           iny                             
-da91: b9 cd 06                     lda     $06cd,Y                 
+da91: b9 cd 06                     lda     Entity_SpawnTypeRaw,Y   
 da94: 38                           sec                             
 da95: e9 01                        sbc     #$01                    
 da97: f0 13                        beq     <a href="#L_daac">L_daac</a>                  
-da99: 99 cd 06                     sta     $06cd,Y                 
+da99: 99 cd 06                     sta     Entity_SpawnTypeRaw,Y   
 da9c: ad 1e 07     <span id="L_da9c">L_da9c</span>          lda     $071e                   
 da9f: 18                           clc                             
 daa0: 69 05                        adc     #$05                    
@@ -6503,29 +6505,29 @@ daa5: c9 3c                        cmp     #$3c
 daa7: 90 dd                        bcc     <a href="#L_da86">L_da86</a>                  
 daa9: 4c 42 db                     jmp     <a href="#L_db42">L_db42</a>                  
 daac: c8           <span id="L_daac">L_daac</span>          iny                             
-daad: b9 cd 06                     lda     $06cd,Y                 
+daad: b9 cd 06                     lda     Entity_SpawnTypeRaw,Y   
 dab0: 88                           dey                             
-dab1: 99 cd 06                     sta     $06cd,Y                 
+dab1: 99 cd 06                     sta     Entity_SpawnTypeRaw,Y   
 dab4: ac 1e 07                     ldy     $071e                   
 dab7: 98                           tya                             
 dab8: 18                           clc                             
 dab9: 69 03                        adc     #$03                    
 dabb: a8                           tay                             
-dabc: b9 cd 06                     lda     $06cd,Y                 
+dabc: b9 cd 06                     lda     Entity_SpawnTypeRaw,Y   
 dabf: 8d 1b 07                     sta     $071b                   
 dac2: a0 0e                        ldy     #$0e                    
 dac4: b9 8e 04     <span id="L_dac4">L_dac4</span>          lda     Entity_Active,Y         
 dac7: 29 08                        and     #$08                    
-dac9: f0 08                        beq     <a href="#L_dad3">L_dad3</a>                  
+dac9: f0 08                        beq     <a href="#Entity_ActivateFromSpawnTable">Entity_ActivateFromSpawnTable</a>
 dacb: c8           <span id="L_dacb">L_dacb</span>          iny                             
 dacc: c0 16                        cpy     #$16                    
 dace: 90 f4                        bcc     <a href="#L_dac4">L_dac4</a>                  
 dad0: 4c 23 db                     jmp     <a href="#L_db23">L_db23</a>                  
-dad3: 8c 1d 07     <span id="L_dad3">L_dad3</span>          sty     $071d                   
+dad3: 8c 1d 07     <span id="Entity_ActivateFromSpawnTable">Entity_ActivateFromSpawnTable</span>sty     $071d                   
 dad6: ac 1e 07                     ldy     $071e                   
-dad9: b9 cd 06                     lda     $06cd,Y                 
+dad9: b9 cd 06                     lda     Entity_SpawnTypeRaw,Y   
 dadc: ac 1d 07                     ldy     $071d                   
-dadf: 99 d3 05                     sta     $05d3,Y                 
+dadf: 99 d3 05                     sta     Entity_TypeId,Y         
 dae2: b9 8e 04                     lda     Entity_Active,Y         
 dae5: 09 08                        ora     #$08                    
 dae7: 99 8e 04                     sta     Entity_Active,Y         
@@ -6544,14 +6546,14 @@ db00: 98                           tya
 db01: 18                           clc                             
 db02: 69 04                        adc     #$04                    
 db04: a8                           tay                             
-db05: b9 cd 06                     lda     $06cd,Y                 
+db05: b9 cd 06                     lda     Entity_SpawnTypeRaw,Y   
 db08: 88                           dey                             
 db09: 38                           sec                             
-db0a: f9 cd 06                     sbc     $06cd,Y                 
+db0a: f9 cd 06                     sbc     Entity_SpawnTypeRaw,Y   
 db0d: 90 09                        bcc     <a href="#L_db18">L_db18</a>                  
 db0f: f0 07                        beq     <a href="#L_db18">L_db18</a>                  
 db11: c8                           iny                             
-db12: 99 cd 06                     sta     $06cd,Y                 
+db12: 99 cd 06                     sta     Entity_SpawnTypeRaw,Y   
 db15: 4c 9c da                     jmp     <a href="#L_da9c">L_da9c</a>                  
 db18: ac 1e 07 a9 ..<span id="D_db18">D_db18</span>          .byte   $ac, $1e, $07, $a9, $ff, $99, $cd, $06
 db20: 4c 9c da                     .byte   $4c, $9c, $da
@@ -6560,17 +6562,17 @@ db26: 98                           tya
 db27: 18                           clc                             
 db28: 69 03                        adc     #$03                    
 db2a: a8                           tay                             
-db2b: b9 cd 06                     lda     $06cd,Y                 
+db2b: b9 cd 06                     lda     Entity_SpawnTypeRaw,Y   
 db2e: 38                           sec                             
 db2f: ed 1b 07                     sbc     $071b                   
 db32: 85 b0                        sta     $b0                     
 db34: c8                           iny                             
-db35: b9 cd 06                     lda     $06cd,Y                 
+db35: b9 cd 06                     lda     Entity_SpawnTypeRaw,Y   
 db38: 38                           sec                             
 db39: e5 b0                        sbc     $b0                     
 db3b: 90 db                        bcc     <a href="#L_db18">L_db18</a>                  
 db3d: f0 d9                        beq     <a href="#L_db18">L_db18</a>                  
-db3f: 99 cd 06                     sta     $06cd,Y                 
+db3f: 99 cd 06                     sta     Entity_SpawnTypeRaw,Y   
 db42: ad 0a 07     <span id="L_db42">L_db42</span>          lda     $070a                   
 db45: 0d 0b 07                     ora     TitleMenu_FrameTimer    
 db48: f0 10                        beq     <a href="#L_db5a">L_db5a</a>                  
@@ -6889,7 +6891,7 @@ de8a: 8e de a5 9a                  .byte   $8e, $de, $a5, $9a
 de8e: 8d 85 07 60  <span id="D_de8e">D_de8e</span>          .byte   $8d, $85, $07, $60
 de92: a2 3c        <span id="L_de92">L_de92</span>          ldx     #$3c                    
 de94: a9 ff                        lda     #$ff                    
-de96: 9d cd 06     <span id="L_de96">L_de96</span>          sta     $06cd,X                 
+de96: 9d cd 06     <span id="L_de96">L_de96</span>          sta     Entity_SpawnTypeRaw,X   
 de99: ca                           dex                             
 de9a: 10 fa                        bpl     <a href="#L_de96">L_de96</a>                  
 de9c: 60                           rts                             
@@ -7854,20 +7856,20 @@ ee67: ee 3d 04     <span id="L_ee67">L_ee67</span>          inc     Spawn_Tally_
 ee6a: d0 03                        bne     <a href="#L_ee6f">L_ee6f</a>                  
 ee6c: ee 3e 04                     inc     Spawn_Tally_Hi          
 ee6f: a9 88        <span id="L_ee6f">L_ee6f</span>          lda     #$88                    
-ee71: 9d 8e 04                     sta     Entity_Active,X         
+ee71: 9d 8e 04     <span id="EnemyType_DispatchInit">EnemyType_DispatchInit</span>sta     Entity_Active,X         
 ee74: a9 ff                        lda     #$ff                    
 ee76: 9d 9b 06                     sta     $069b,X                 
-ee79: bd d3 05                     lda     $05d3,X                 
+ee79: bd d3 05                     lda     Entity_TypeId,X         
 ee7c: 0a                           asl     A                       
 ee7d: a8                           tay                             
-ee7e: b9 f2 ef                     lda     $eff2,Y                 
+ee7e: b9 f2 ef                     lda     <a href="#EnemyType_InitDispatch">EnemyType_InitDispatch</a>,Y
 ee81: 85 8a                        sta     PPU_SrcLo               
 ee83: c8                           iny                             
-ee84: b9 f2 ef                     lda     $eff2,Y                 
+ee84: b9 f2 ef                     lda     <a href="#EnemyType_InitDispatch">EnemyType_InitDispatch</a>,Y
 ee87: 85 8b                        sta     PPU_SrcHi               
 ee89: 6c 8a 00                     jmp     ($008a)                 
 ee8c: a9 00        <span id="L_ee8c">L_ee8c</span>          lda     #$00                    
-ee8e: 9d d3 05                     sta     $05d3,X                 
+ee8e: 9d d3 05                     sta     Entity_TypeId,X         
 ee91: a9 11                        lda     #$11                    
 ee93: 9d ba 05                     sta     $05ba,X                 
 ee96: a9 02                        lda     #$02                    
@@ -8172,7 +8174,7 @@ f264: 9d 8e 04                     sta     Entity_Active,X
 f267: 4c 77 f2                     jmp     <a href="#L_f277">L_f277</a>                  
 f26a: a9 0f 9d 69 ..<span id="D_f26a">D_f26a</span>          .byte   $a9, $0f, $9d, $69, $06, $bd, $8e, $04
 f272: 09 04 9d 8e ..                .byte   $09, $04, $9d, $8e, $04
-f277: bd d3 05     <span id="L_f277">L_f277</span>          lda     $05d3,X                 
+f277: bd d3 05     <span id="L_f277">L_f277</span>          lda     Entity_TypeId,X         
 f27a: c9 07                        cmp     #$07                    
 f27c: d0 08                        bne     <a href="#L_f286">L_f286</a>                  
 f27e: bd a7 04                     lda     Entity_Y,X              
@@ -8229,7 +8231,7 @@ f301: 20 f4 a9                     jsr     <a href="#L_a9f4">L_a9f4</a>
 f304: 90 32                        bcc     <a href="#L_f338">L_f338</a>                  
 f306: e0 18                        cpx     #$18                    
 f308: d0 06                        bne     <a href="#L_f310">L_f310</a>                  
-f30a: de d3 05                     dec     $05d3,X                 
+f30a: de d3 05                     dec     Entity_TypeId,X         
 f30d: d0 01                        bne     <a href="#L_f310">L_f310</a>                  
 f30f: 60                           rts                             
 f310: bd 8e 04     <span id="L_f310">L_f310</span>          lda     Entity_Active,X         
@@ -8278,7 +8280,7 @@ f37e: a9 2c        <span id="D_f37e">D_f37e</span>          .byte   $a9, $2c
 f380: 9d ec 05 4c ..<span id="D_f380">D_f380</span>          .byte   $9d, $ec, $05, $4c, $cb, $f1
 f386: e0 18        <span id="L_f386">L_f386</span>          cpx     #$18                    
 f388: f0 53                        beq     <a href="#L_f3dd">L_f3dd</a>                  
-f38a: bd d3 05                     lda     $05d3,X                 
+f38a: bd d3 05                     lda     Entity_TypeId,X         
 f38d: c9 07                        cmp     #$07                    
 f38f: f0 26                        beq     <a href="#L_f3b7">L_f3b7</a>                  
 f391: c9 01                        cmp     #$01                    
@@ -8517,7 +8519,7 @@ f61e: 90 03                        bcc     <a href="#L_f623">L_f623</a>
 f620: 4c 3c f8                     jmp     <a href="#L_f83c">L_f83c</a>                  
 f623: 20 cd f7     <span id="L_f623">L_f623</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
 f626: f0 33                        beq     <a href="#L_f65b">L_f65b</a>                  
-f628: bd d3 05                     lda     $05d3,X                 
+f628: bd d3 05                     lda     Entity_TypeId,X         
 f62b: c9 30                        cmp     #$30                    
 f62d: b0 06                        bcs     <a href="#L_f635">L_f635</a>                  
 f62f: 20 32 fa                     jsr     <a href="#L_fa32">L_fa32</a>                  
@@ -8572,7 +8574,7 @@ f6b7: 20 cf b3 f0 ..<span id="D_f6b7">D_f6b7</span>          .byte   $20, $cf, $
 f6bf: 20 75 c2 4c ..                .byte   $20, $75, $c2, $4c, $9b, $f6
 f6c5: bd 69 06 9d ..<span id="D_f6c5">D_f6c5</span>          .byte   $bd, $69, $06, $9d, $0b, $05, $20, $75
 f6cd: f7 4c 23 f6  <span id="D_f6cd">D_f6cd</span>          .byte   $f7, $4c, $23, $f6
-f6d1: bd d3 05     <span id="L_f6d1">L_f6d1</span>          lda     $05d3,X                 
+f6d1: bd d3 05     <span id="L_f6d1">L_f6d1</span>          lda     Entity_TypeId,X         
 f6d4: 38                           sec                             
 f6d5: e9 0a                        sbc     #$0a                    
 f6d7: 0a                           asl     A                       
@@ -8632,7 +8634,7 @@ f75c: 4c bc f5                     jmp     <a href="#L_f5bc">L_f5bc</a>
 f75f: 20 fc f7 90 ..<span id="D_f75f">D_f75f</span>          .byte   $20, $fc, $f7, $90, $03, $4c, $3c, $f8
 f767: 20 cf b3 f0 ..                .byte   $20, $cf, $b3, $f0, $d5, $4c, $3c, $f8
 f76f: 20 75 c2 4c ..<span id="D_f76f">D_f76f</span>          .byte   $20, $75, $c2, $4c, $41, $f7
-f775: bd d3 05     <span id="L_f775">L_f775</span>          lda     $05d3,X                 
+f775: bd d3 05     <span id="L_f775">L_f775</span>          lda     Entity_TypeId,X         
 f778: c9 30                        cmp     #$30                    
 f77a: b0 2d                        bcs     <a href="#L_f7a9">L_f7a9</a>                  
 f77c: c9 20                        cmp     #$20                    
@@ -8675,7 +8677,7 @@ f7dd: 20 7b b3                     jsr     <a href="#L_b37b">L_b37b</a>
 f7e0: bd 8e 04                     lda     Entity_Active,X         
 f7e3: 29 08                        and     #$08                    
 f7e5: d0 0f                        bne     <a href="#L_f7f6">L_f7f6</a>                  
-f7e7: bd d3 05                     lda     $05d3,X                 
+f7e7: bd d3 05                     lda     Entity_TypeId,X         
 f7ea: c9 ff                        cmp     #$ff                    
 f7ec: f0 08                        beq     <a href="#L_f7f6">L_f7f6</a>                  
 f7ee: a9 00                        lda     #$00                    
@@ -8736,13 +8738,13 @@ f876: a9 08                        lda     #$08
 f878: 9d 0b 05                     sta     Entity_Direction,X      
 f87b: a9 ff                        lda     #$ff                    
 f87d: 9d 9b 06                     sta     $069b,X                 
-f880: bd d3 05                     lda     $05d3,X                 
+f880: bd d3 05                     lda     Entity_TypeId,X         
 f883: c9 30                        cmp     #$30                    
 f885: 90 03                        bcc     <a href="#L_f88a">L_f88a</a>                  
 f887: 4c ab f9                     jmp     <a href="#L_f9ab">L_f9ab</a>                  
 f88a: a9 01        <span id="L_f88a">L_f88a</span>          lda     #$01                    
 f88c: 9d f2 04                     sta     $04f2,X                 
-f88f: bd d3 05                     lda     $05d3,X                 
+f88f: bd d3 05                     lda     Entity_TypeId,X         
 f892: c9 20                        cmp     #$20                    
 f894: 90 03                        bcc     <a href="#L_f899">L_f899</a>                  
 f896: 4c 55 f9                     jmp     <a href="#L_f955">L_f955</a>                  
@@ -8777,7 +8779,7 @@ f8d9: d0 6f                        bne     <a href="#L_f94a">L_f94a</a>
 f8db: a9 00                        lda     #$00                    
 f8dd: 20 e1 f9                     jsr     <a href="#L_f9e1">L_f9e1</a>                  
 f8e0: a0 00                        ldy     #$00                    
-f8e2: bd d3 05                     lda     $05d3,X                 
+f8e2: bd d3 05                     lda     Entity_TypeId,X         
 f8e5: c9 0a                        cmp     #$0a                    
 f8e7: f0 10                        beq     <a href="#L_f8f9">L_f8f9</a>                  
 f8e9: c8                           iny                             
@@ -8843,7 +8845,7 @@ f972: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>
 f975: f0 06                        beq     <a href="#L_f97d">L_f97d</a>                  
 f977: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 f97a: 4c 61 f9                     jmp     <a href="#L_f961">L_f961</a>                  
-f97d: bd d3 05     <span id="L_f97d">L_f97d</span>          lda     $05d3,X                 
+f97d: bd d3 05     <span id="L_f97d">L_f97d</span>          lda     Entity_TypeId,X         
 f980: c9 30                        cmp     #$30                    
 f982: b0 12                        bcs     <a href="#L_f996">L_f996</a>                  
 f984: bd f2 04                     lda     $04f2,X                 
@@ -8890,7 +8892,7 @@ f9eb: 9d f2 04                     sta     $04f2,X
 f9ee: bd 8e 04                     lda     Entity_Active,X         
 f9f1: 29 40                        and     #$40                    
 f9f3: f0 12                        beq     <a href="#L_fa07">L_fa07</a>                  
-f9f5: bd d3 05                     lda     $05d3,X                 
+f9f5: bd d3 05                     lda     Entity_TypeId,X         
 f9f8: c9 30                        cmp     #$30                    
 f9fa: b0 07                        bcs     <a href="#L_fa03">L_fa03</a>                  
 f9fc: a9 09                        lda     #$09                    
@@ -9028,7 +9030,7 @@ fb1d: cd c6 07                     cmp     $07c6
 fb20: b0 f0                        bcs     <a href="#L_fb12">L_fb12</a>                  
 fb22: a9 00                        lda     #$00                    
 fb24: 8d c6 07                     sta     $07c6                   
-fb27: bd d3 05                     lda     $05d3,X                 
+fb27: bd d3 05                     lda     Entity_TypeId,X         
 fb2a: c9 ff                        cmp     #$ff                    
 fb2c: d0 05                        bne     <a href="#L_fb33">L_fb33</a>                  
 fb2e: a9 02                        lda     #$02                    
@@ -9117,7 +9119,7 @@ fbe0: a9 01                        lda     #$01
 fbe2: 99 f2 04                     sta     $04f2,Y                 
 fbe5: a9 88                        lda     #$88                    
 fbe7: 99 8e 04                     sta     Entity_Active,Y         
-fbea: bd d3 05                     lda     $05d3,X                 
+fbea: bd d3 05                     lda     Entity_TypeId,X         
 fbed: c9 ff                        cmp     #$ff                    
 fbef: d0 36                        bne     <a href="#L_fc27">L_fc27</a>                  
 fbf1: b9 88 05                     lda     Entity_PosX_FracMid,Y   
@@ -9145,7 +9147,7 @@ fc24: 99 24 05                     sta     Entity_PosY_HiBit,Y
 fc27: ac 1d 07     <span id="L_fc27">L_fc27</span>          ldy     $071d                   
 fc2a: a9 ff                        lda     #$ff                    
 fc2c: 99 0e 07                     sta     $070e,Y                 
-fc2f: bd d3 05     <span id="L_fc2f">L_fc2f</span>          lda     $05d3,X                 
+fc2f: bd d3 05     <span id="L_fc2f">L_fc2f</span>          lda     Entity_TypeId,X         
 fc32: c9 ff                        cmp     #$ff                    
 fc34: d0 05                        bne     <a href="#L_fc3b">L_fc3b</a>                  
 fc36: a9 02                        lda     #$02                    
