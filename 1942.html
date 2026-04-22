@@ -8002,19 +8002,19 @@ efe6: 9d 82 06                     sta     Entity_AnimTick,X
 efe9: 9d ec 05                     sta     Entity_AnimFrame,X      
 efec: 20 e8 f6                     jsr     <a href="#L_f6e8">L_f6e8</a>                  
 efef: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
-eff2: 8c ee b4 ee ..<span id="D_eff2">D_eff2</span>          .byte   $8c, $ee, $b4, $ee, $8c, $ee, $d7, $ee
-effa: ea ee 00 ef ..                .byte   $ea, $ee, $00, $ef, $00, $ef, $13, $ef
-f002: 2b ef 49 ef ..                .byte   $2b, $ef, $49, $ef, $49, $ef, $6b, $ef
-f00a: 6b ef 6b ef ..                .byte   $6b, $ef, $6b, $ef, $6b, $ef, $6b, $ef
-f012: 6b ef 6b ef ..                .byte   $6b, $ef, $6b, $ef, $6b, $ef, $6b, $ef
-f01a: 6b ef 6b ef ..                .byte   $6b, $ef, $6b, $ef, $6b, $ef, $6e, $ef
-f022: 6e ef 6e ef ..                .byte   $6e, $ef, $6e, $ef, $6e, $ef, $6e, $ef
-f02a: 6e ef 6e ef ..                .byte   $6e, $ef, $6e, $ef, $6e, $ef, $6e, $ef
-f032: 6e ef 8e ef ..                .byte   $6e, $ef, $8e, $ef, $a0, $ef, $ad, $ef
-f03a: b5 ef bd ef ..                .byte   $b5, $ef, $bd, $ef, $c5, $ef, $cd, $ef
-f042: bd ef da ef ..                .byte   $bd, $ef, $da, $ef, $da, $ef, $da, $ef
-f04a: da ef da ef ..                .byte   $da, $ef, $da, $ef, $da, $ef, $da, $ef
-f052: da ef                        .byte   $da, $ef
+eff2: 8c ee b4 ee ..<span id="D_eff2">D_eff2</span>          .byte   $8c, $ee, $b4, $ee, $8c, $ee
+eff8: d7 ee ea ee ..<span id="D_eff8">D_eff8</span>          .byte   $d7, $ee, $ea, $ee, $00, $ef, $00, $ef
+f000: 13 ef 2b ef ..                .byte   $13, $ef, $2b, $ef, $49, $ef, $49, $ef
+f008: 6b ef 6b ef ..                .byte   $6b, $ef, $6b, $ef, $6b, $ef, $6b, $ef
+f010: 6b ef 6b ef ..                .byte   $6b, $ef, $6b, $ef, $6b, $ef, $6b, $ef
+f018: 6b ef 6b ef ..                .byte   $6b, $ef, $6b, $ef, $6b, $ef, $6b, $ef
+f020: 6e ef 6e ef ..                .byte   $6e, $ef, $6e, $ef, $6e, $ef, $6e, $ef
+f028: 6e ef 6e ef ..                .byte   $6e, $ef, $6e, $ef, $6e, $ef, $6e, $ef
+f030: 6e ef 6e ef ..                .byte   $6e, $ef, $6e, $ef, $8e, $ef, $a0, $ef
+f038: ad ef b5 ef ..                .byte   $ad, $ef, $b5, $ef, $bd, $ef, $c5, $ef
+f040: cd ef bd ef ..                .byte   $cd, $ef, $bd, $ef, $da, $ef, $da, $ef
+f048: da ef da ef ..                .byte   $da, $ef, $da, $ef, $da, $ef, $da, $ef
+f050: da ef da ef                  .byte   $da, $ef, $da, $ef
 f054: ad 1f 07     <span id="L_f054">L_f054</span>          lda     Spawn_PatternIndex      
 f057: 29 07                        and     #$07                    
 f059: 0a                           asl     A                       
@@ -9217,35 +9217,36 @@ fd2f: 35 fd 3a fd ..<span id="D_fd2f">D_fd2f</span>          .byte   $35, $fd, $
 fd37: ff 00 01 05 ..                .byte   $ff, $00, $01, $05, $02, $fe, $ff, $00
 fd3f: 01 02 07 01 ..                .byte   $01, $02, $07, $01, $ff, $00, $02, $ff
 fd47: 01 02 00                     .byte   $01, $02, $00
-fd4a: 9a fd 2f fe ..<span id="D_fd4a">D_fd4a</span>          .byte   $9a, $fd, $2f, $fe, $50, $fe, $61, $fe
-fd52: 72 fe 83 fe ..                .byte   $72, $fe, $83, $fe, $94, $fe, $a5, $fe
-fd5a: b6 fe d7 fe ..                .byte   $b6, $fe, $d7, $fe, $f8, $fe, $09, $ff
-fd62: 2a ff 4b ff ..                .byte   $2a, $ff, $4b, $ff, $4b, $ff, $4b, $ff
-fd6a: 4b ff 4b ff ..                .byte   $4b, $ff, $4b, $ff, $4b, $ff, $4b, $ff
-fd72: 4b ff 4b ff ..                .byte   $4b, $ff, $4b, $ff, $4b, $ff, $78, $ff
-fd7a: a1 ff a9 ff ..                .byte   $a1, $ff, $a9, $ff, $b1, $ff, $b9, $ff
-fd82: c1 ff c9 ff ..                .byte   $c1, $ff, $c9, $ff, $d1, $ff, $d9, $ff
-fd8a: d9 ff d9 ff ..                .byte   $d9, $ff, $d9, $ff, $d9, $ff, $d9, $ff
-fd92: d9 ff d9 ff ..                .byte   $d9, $ff, $d9, $ff, $d9, $ff, $fa, $ff
-fd9a: 00 60 00 80 ..                .byte   $00, $60, $00, $80, $00, $80, $00, $80
-fda2: 00 c0 00 80 ..                .byte   $00, $c0, $00, $80, $00, $d0, $00, $84
-fdaa: 00 d8 00 88 ..                .byte   $00, $d8, $00, $88, $00, $dc, $00, $90
-fdb2: 00 e0 00 a0 ..                .byte   $00, $e0, $00, $a0, $00, $dc, $00, $b0
-fdba: 00 d8 00 b8 ..                .byte   $00, $d8, $00, $b8, $00, $d0, $00, $bc
-fdc2: 00 c0 00 c0 ..                .byte   $00, $c0, $00, $c0, $00, $b0, $00, $bc
-fdca: 00 a8 00 b8 ..                .byte   $00, $a8, $00, $b8, $00, $a4, $00, $b0
-fdd2: 00 a0 00 a0 ..                .byte   $00, $a0, $00, $a0, $00, $a4, $00, $90
-fdda: 00 a8 00 88 ..                .byte   $00, $a8, $00, $88, $00, $b0, $00, $84
-fde2: 00 c0 00 7e ..                .byte   $00, $c0, $00, $7e, $01, $40, $00, $80
-fdea: 01 50 00 84 ..                .byte   $01, $50, $00, $84, $01, $58, $00, $88
-fdf2: 01 5c 00 90 ..                .byte   $01, $5c, $00, $90, $01, $60, $00, $a0
-fdfa: 01 5c 00 b0 ..                .byte   $01, $5c, $00, $b0, $01, $58, $00, $b8
-fe02: 01 50 00 bc ..                .byte   $01, $50, $00, $bc, $01, $40, $00, $c0
-fe0a: 01 30 00 bc ..                .byte   $01, $30, $00, $bc, $01, $28, $00, $b8
-fe12: 01 24 00 b0 ..                .byte   $01, $24, $00, $b0, $01, $20, $00, $a0
-fe1a: 01 24 00 90 ..                .byte   $01, $24, $00, $90, $01, $28, $00, $88
-fe22: 01 30 00 84 ..                .byte   $01, $30, $00, $84, $01, $40, $00, $80
-fe2a: 01 90 00 80 ..                .byte   $01, $90, $00, $80, $ff
+fd4a: 9a           <span id="D_fd4a">D_fd4a</span>          .byte   $9a
+fd4b: fd 2f fe 50 ..<span id="D_fd4b">D_fd4b</span>          .byte   $fd, $2f, $fe, $50, $fe, $61, $fe, $72
+fd53: fe 83 fe 94 ..                .byte   $fe, $83, $fe, $94, $fe, $a5, $fe, $b6
+fd5b: fe d7 fe f8 ..                .byte   $fe, $d7, $fe, $f8, $fe, $09, $ff, $2a
+fd63: ff 4b ff 4b ..                .byte   $ff, $4b, $ff, $4b, $ff, $4b, $ff, $4b
+fd6b: ff 4b ff 4b ..                .byte   $ff, $4b, $ff, $4b, $ff, $4b, $ff, $4b
+fd73: ff 4b ff 4b ..                .byte   $ff, $4b, $ff, $4b, $ff, $78, $ff, $a1
+fd7b: ff a9 ff b1 ..                .byte   $ff, $a9, $ff, $b1, $ff, $b9, $ff, $c1
+fd83: ff c9 ff d1 ..                .byte   $ff, $c9, $ff, $d1, $ff, $d9, $ff, $d9
+fd8b: ff d9 ff d9 ..                .byte   $ff, $d9, $ff, $d9, $ff, $d9, $ff, $d9
+fd93: ff d9 ff d9 ..                .byte   $ff, $d9, $ff, $d9, $ff, $fa, $ff, $00
+fd9b: 60 00 80 00 ..                .byte   $60, $00, $80, $00, $80, $00, $80, $00
+fda3: c0 00 80 00 ..                .byte   $c0, $00, $80, $00, $d0, $00, $84, $00
+fdab: d8 00 88 00 ..                .byte   $d8, $00, $88, $00, $dc, $00, $90, $00
+fdb3: e0 00 a0 00 ..                .byte   $e0, $00, $a0, $00, $dc, $00, $b0, $00
+fdbb: d8 00 b8 00 ..                .byte   $d8, $00, $b8, $00, $d0, $00, $bc, $00
+fdc3: c0 00 c0 00 ..                .byte   $c0, $00, $c0, $00, $b0, $00, $bc, $00
+fdcb: a8 00 b8 00 ..                .byte   $a8, $00, $b8, $00, $a4, $00, $b0, $00
+fdd3: a0 00 a0 00 ..                .byte   $a0, $00, $a0, $00, $a4, $00, $90, $00
+fddb: a8 00 88 00 ..                .byte   $a8, $00, $88, $00, $b0, $00, $84, $00
+fde3: c0 00 7e 01 ..                .byte   $c0, $00, $7e, $01, $40, $00, $80, $01
+fdeb: 50 00 84 01 ..                .byte   $50, $00, $84, $01, $58, $00, $88, $01
+fdf3: 5c 00 90 01 ..                .byte   $5c, $00, $90, $01, $60, $00, $a0, $01
+fdfb: 5c 00 b0 01 ..                .byte   $5c, $00, $b0, $01, $58, $00, $b8, $01
+fe03: 50 00 bc 01 ..                .byte   $50, $00, $bc, $01, $40, $00, $c0, $01
+fe0b: 30 00 bc 01 ..                .byte   $30, $00, $bc, $01, $28, $00, $b8, $01
+fe13: 24 00 b0 01 ..                .byte   $24, $00, $b0, $01, $20, $00, $a0, $01
+fe1b: 24 00 90 01 ..                .byte   $24, $00, $90, $01, $28, $00, $88, $01
+fe23: 30 00 84 01 ..                .byte   $30, $00, $84, $01, $40, $00, $80, $01
+fe2b: 90 00 80 ff                  .byte   $90, $00, $80, $ff
 fe2f: 00 50 00 98 ..<span id="D_fe2f">D_fe2f</span>          .byte   $00, $50, $00, $98, $01, $40, $00, $a0
 fe37: 01 60 00 a0 ..                .byte   $01, $60, $00, $a0, $01, $50, $00, $a0
 fe3f: 00 c0 00 ac ..                .byte   $00, $c0, $00, $ac, $00, $b0, $00, $ac
