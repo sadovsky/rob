@@ -3612,7 +3612,7 @@ b5c3: 9d d9 04                     sta     Entity_SpriteTile,X
 b5c6: a9 ff                        lda     #$ff                    
 b5c8: 9d 9b 06                     sta     Entity_FrameTick,X      
 b5cb: 20 75 c2     <span id="L_b5cb">L_b5cb</span>          jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
-b5ce: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
+b5ce: 20 cd f7                     jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 b5d1: f0 f8                        beq     <a href="#L_b5cb">L_b5cb</a>                  
 b5d3: bd 8e 04                     lda     Entity_Active,X         
 b5d6: 29 01                        and     #$01                    
@@ -3622,7 +3622,7 @@ b5dd: bd 9b 06                     lda     Entity_FrameTick,X
 b5e0: 29 03                        and     #$03                    
 b5e2: d0 03                        bne     <a href="#L_b5e7">L_b5e7</a>                  
 b5e4: fe ba 05                     inc     Entity_TypeParam12,X    
-b5e7: 20 cd f7     <span id="L_b5e7">L_b5e7</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
+b5e7: 20 cd f7     <span id="L_b5e7">L_b5e7</span>          jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 b5ea: f0 68                        beq     <a href="#L_b654">L_b654</a>                  
 b5ec: a0 00                        ldy     #$00                    
 b5ee: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
@@ -3651,7 +3651,7 @@ b629: a9 04                        lda     #$04
 b62b: 9d ba 05                     sta     Entity_TypeParam12,X    
 b62e: a9 08                        lda     #$08                    
 b630: 9d 0b 05                     sta     Entity_Direction,X      
-b633: 20 cd f7     <span id="L_b633">L_b633</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
+b633: 20 cd f7     <span id="L_b633">L_b633</span>          jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 b636: f0 1c                        beq     <a href="#L_b654">L_b654</a>                  
 b638: a0 00                        ldy     #$00                    
 b63a: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
@@ -7776,7 +7776,7 @@ ed72: 20 cf b3     <span id="L_ed72">L_ed72</span>          jsr     <a href="#L_
 ed75: d0 0f                        bne     <a href="#L_ed86">L_ed86</a>                  
 ed77: 20 fc f7                     jsr     <a href="#L_f7fc">L_f7fc</a>                  
 ed7a: 20 00 fb                     jsr     <a href="#L_fb00">L_fb00</a>                  
-ed7d: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
+ed7d: 20 cd f7                     jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 ed80: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
 ed83: 4c 72 ed                     jmp     <a href="#L_ed72">L_ed72</a>                  
 ed86: bd 8e 04     <span id="L_ed86">L_ed86</span>          lda     Entity_Active,X         
@@ -7834,7 +7834,7 @@ edfc: c9 06                        cmp     #$06
 edfe: 90 05                        bcc     <a href="#L_ee05">L_ee05</a>                  
 ee00: a9 00                        lda     #$00                    
 ee02: 9d 82 06                     sta     Entity_AnimTick,X       
-ee05: 20 cd f7     <span id="L_ee05">L_ee05</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
+ee05: 20 cd f7     <span id="L_ee05">L_ee05</span>          jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 ee08: f0 06                        beq     <a href="#L_ee10">L_ee10</a>                  
 ee0a: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
 ee0d: 4c 9d ed                     jmp     <a href="#L_ed9d">L_ed9d</a>                  
@@ -7862,7 +7862,7 @@ ee47: 69 80                        adc     #$80
 ee49: 9d d9 04                     sta     Entity_SpriteTile,X     
 ee4c: a9 08                        lda     #$08                    
 ee4e: 9d 0b 05                     sta     Entity_Direction,X      
-ee51: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
+ee51: 20 cd f7                     jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 ee54: f0 06                        beq     <a href="#L_ee5c">L_ee5c</a>                  
 ee56: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
 ee59: 4c 3b ee                     jmp     <a href="#L_ee3b">L_ee3b</a>                  
@@ -7967,7 +7967,7 @@ ef5b: bd 8e 04                     lda     Entity_Active,X
 ef5e: 09 10                        ora     #$10                    
 ef60: 09 02                        ora     #$02                    
 ef62: 9d 8e 04                     sta     Entity_Active,X         
-ef65: 20 70 f5                     jsr     <a href="#L_f570">L_f570</a>                  
+ef65: 20 70 f5                     jsr     <a href="#Entity_LoadMovementFromAnimStream">Entity_LoadMovementFromAnimStream</a>
 ef68: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
 ef6b: 4c 49 ef                     .byte   $4c, $49, $ef
 ef6e: bd 8e 04     <span id="L_ef6e">L_ef6e</span>          lda     Entity_Active,X         
@@ -7980,7 +7980,7 @@ ef7d: 9d ba 05                     sta     Entity_TypeParam12,X
 ef80: a9 00                        lda     #$00                    
 ef82: 9d 82 06                     sta     Entity_AnimTick,X       
 ef85: 9d ec 05                     sta     Entity_AnimFrame,X      
-ef88: 20 70 f5                     jsr     <a href="#L_f570">L_f570</a>                  
+ef88: 20 70 f5                     jsr     <a href="#Entity_LoadMovementFromAnimStream">Entity_LoadMovementFromAnimStream</a>
 ef8b: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
 ef8e: 4c 6e ef a9 ..                .byte   $4c, $6e, $ef, $a9, $71, $4c, $98, $ef
 ef96: a9 70 9d d9 ..                .byte   $a9, $70, $9d, $d9, $04, $a9, $06, $4c
@@ -8038,7 +8038,7 @@ f082: a0 00                        ldy     #$00
 f084: 20 e5 b0                     jsr     <a href="#L_b0e5">L_b0e5</a>                  
 f087: 20 c9 ad                     jsr     <a href="#L_adc9">L_adc9</a>                  
 f08a: 9d 0b 05                     sta     Entity_Direction,X      
-f08d: 20 cd f7     <span id="L_f08d">L_f08d</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
+f08d: 20 cd f7     <span id="L_f08d">L_f08d</span>          jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 f090: d0 06                        bne     <a href="#L_f098">L_f098</a>                  
 f092: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
 f095: 4c 8d f0                     jmp     <a href="#L_f08d">L_f08d</a>                  
@@ -8087,7 +8087,7 @@ f13e: 01 30 00 40 ..                .byte   $01, $30, $00, $40, $00, $c0, $00, $
 f146: 01 70 00 40                  .byte   $01, $70, $00, $40
 f14a: 08 07 06 05 ..<span id="D_f14a">D_f14a</span>          .byte   $08, $07, $06, $05, $0b, $03, $02, $01
 f152: 01 0f 0e 0d ..                .byte   $01, $0f, $0e, $0d, $05, $0b, $0a, $09
-f15a: 20 cd f7     <span id="L_f15a">L_f15a</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
+f15a: 20 cd f7     <span id="L_f15a">L_f15a</span>          jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 f15d: f0 16                        beq     <a href="#L_f175">L_f175</a>                  
 f15f: 20 32 fa                     jsr     <a href="#L_fa32">L_fa32</a>                  
 f162: 20 fc f7                     jsr     <a href="#L_f7fc">L_f7fc</a>                  
@@ -8163,7 +8163,7 @@ f214: 20 02 b1                     jsr     <a href="#L_b102">L_b102</a>
 f217: 20 bc b0                     jsr     <a href="#L_b0bc">L_b0bc</a>                  
 f21a: 20 f4 a9                     jsr     <a href="#L_a9f4">L_a9f4</a>                  
 f21d: b0 32                        bcs     <a href="#L_f251">L_f251</a>                  
-f21f: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
+f21f: 20 cd f7                     jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 f222: f0 27                        beq     <a href="#L_f24b">L_f24b</a>                  
 f224: 20 32 fa                     jsr     <a href="#L_fa32">L_fa32</a>                  
 f227: 20 fc f7                     jsr     <a href="#L_f7fc">L_f7fc</a>                  
@@ -8229,7 +8229,7 @@ f2cc: 20 bc b0                     jsr     <a href="#L_b0bc">L_b0bc</a>
 f2cf: 20 c9 ad                     jsr     <a href="#L_adc9">L_adc9</a>                  
 f2d2: 20 c3 f7                     jsr     <a href="#L_f7c3">L_f7c3</a>                  
 f2d5: 20 86 f3                     jsr     <a href="#L_f386">L_f386</a>                  
-f2d8: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
+f2d8: 20 cd f7                     jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 f2db: f0 0f                        beq     <a href="#L_f2ec">L_f2ec</a>                  
 f2dd: e0 18                        cpx     #$18                    
 f2df: f0 0b                        beq     <a href="#L_f2ec">L_f2ec</a>                  
@@ -8371,7 +8371,7 @@ f452: a9 08                        lda     #$08
 f454: 9d 0b 05                     sta     Entity_Direction,X      
 f457: a9 14        <span id="L_f457">L_f457</span>          lda     #$14                    
 f459: 9d d9 04                     sta     Entity_SpriteTile,X     
-f45c: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
+f45c: 20 cd f7                     jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 f45f: d0 06                        bne     <a href="#L_f467">L_f467</a>                  
 f461: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
 f464: 4c 57 f4                     jmp     <a href="#L_f457">L_f457</a>                  
@@ -8426,7 +8426,7 @@ f4db: fe ba 05                     inc     Entity_TypeParam12,X
 f4de: fe ba 05                     inc     Entity_TypeParam12,X    
 f4e1: a9 00                        lda     #$00                    
 f4e3: 9d 9b 06                     sta     Entity_FrameTick,X      
-f4e6: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
+f4e6: 20 cd f7                     jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 f4e9: f0 16                        beq     <a href="#L_f501">L_f501</a>                  
 f4eb: 20 32 fa                     jsr     <a href="#L_fa32">L_fa32</a>                  
 f4ee: 20 fc f7                     jsr     <a href="#L_f7fc">L_f7fc</a>                  
@@ -8458,9 +8458,9 @@ f550: 00 e0 00 40 ..<span id="D_f550">D_f550</span>          .byte   $00, $e0, $
 f558: 00 c0 00 40 ..                .byte   $00, $c0, $00, $40, $00, $d0, $00, $40
 f560: 01 30 00 40 ..                .byte   $01, $30, $00, $40, $01, $40, $00, $40
 f568: 01 20 00 40 ..                .byte   $01, $20, $00, $40, $00, $f0, $00, $40
-f570: a9 ff        <span id="L_f570">L_f570</span>          lda     #$ff                    
+f570: a9 ff        <span id="Entity_LoadMovementFromAnimStream">Entity_LoadMovementFromAnimStream</span>lda     #$ff                    
 f572: 9d 9b 06                     sta     Entity_FrameTick,X      
-f575: 20 d1 f6                     jsr     <a href="#L_f6d1">L_f6d1</a>                  
+f575: 20 d1 f6                     jsr     <a href="#EnemyType_GetAnimPtr">EnemyType_GetAnimPtr</a>    
 f578: b1 8a                        lda     ($8a),Y                 
 f57a: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
 f57d: c8                           iny                             
@@ -8492,7 +8492,7 @@ f5b0: 20 02 b1                     jsr     <a href="#L_b102">L_b102</a>
 f5b3: 20 bc b0                     jsr     <a href="#L_b0bc">L_b0bc</a>                  
 f5b6: 20 c9 ad                     jsr     <a href="#L_adc9">L_adc9</a>                  
 f5b9: 9d 0b 05                     sta     Entity_Direction,X      
-f5bc: 20 d1 f6     <span id="L_f5bc">L_f5bc</span>          jsr     <a href="#L_f6d1">L_f6d1</a>                  
+f5bc: 20 d1 f6     <span id="L_f5bc">L_f5bc</span>          jsr     <a href="#EnemyType_GetAnimPtr">EnemyType_GetAnimPtr</a>    
 f5bf: b1 8a                        lda     ($8a),Y                 
 f5c1: c9 ff                        cmp     #$ff                    
 f5c3: d0 03                        bne     <a href="#L_f5c8">L_f5c8</a>                  
@@ -8535,7 +8535,7 @@ f618: 20 75 f7                     jsr     <a href="#L_f775">L_f775</a>
 f61b: 20 fc f7                     jsr     <a href="#L_f7fc">L_f7fc</a>                  
 f61e: 90 03                        bcc     <a href="#L_f623">L_f623</a>                  
 f620: 4c 3c f8                     jmp     <a href="#L_f83c">L_f83c</a>                  
-f623: 20 cd f7     <span id="L_f623">L_f623</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
+f623: 20 cd f7     <span id="L_f623">L_f623</span>          jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 f626: f0 33                        beq     <a href="#L_f65b">L_f65b</a>                  
 f628: bd d3 05                     lda     Entity_TypeId,X         
 f62b: c9 30                        cmp     #$30                    
@@ -8592,15 +8592,15 @@ f6b7: 20 cf b3 f0 ..<span id="D_f6b7">D_f6b7</span>          .byte   $20, $cf, $
 f6bf: 20 75 c2 4c ..                .byte   $20, $75, $c2, $4c, $9b, $f6
 f6c5: bd 69 06 9d ..<span id="D_f6c5">D_f6c5</span>          .byte   $bd, $69, $06, $9d, $0b, $05, $20, $75
 f6cd: f7 4c 23 f6  <span id="D_f6cd">D_f6cd</span>          .byte   $f7, $4c, $23, $f6
-f6d1: bd d3 05     <span id="L_f6d1">L_f6d1</span>          lda     Entity_TypeId,X         
+f6d1: bd d3 05     <span id="EnemyType_GetAnimPtr">EnemyType_GetAnimPtr</span>lda     Entity_TypeId,X         
 f6d4: 38                           sec                             
 f6d5: e9 0a                        sbc     #$0a                    
 f6d7: 0a                           asl     A                       
 f6d8: a8                           tay                             
-f6d9: b9 4a fd                     lda     $fd4a,Y                 
+f6d9: b9 4a fd                     lda     <a href="#EnemyType_AnimTable">EnemyType_AnimTable</a>,Y   
 f6dc: 85 8a                        sta     PPU_SrcLo               
 f6de: c8                           iny                             
-f6df: b9 4a fd                     lda     $fd4a,Y                 
+f6df: b9 4a fd                     lda     <a href="#EnemyType_AnimTable">EnemyType_AnimTable</a>,Y   
 f6e2: 85 8b                        sta     PPU_SrcHi               
 f6e4: bc 82 06                     ldy     Entity_AnimTick,X       
 f6e7: 60                           rts                             
@@ -8619,7 +8619,7 @@ f703: 9d 88 05                     sta     Entity_PosX_FracMid,X
 f706: 4c 13 f7                     jmp     <a href="#L_f713">L_f713</a>                  
 f709: a9 01 9d 6f ..<span id="D_f709">D_f709</span>          .byte   $a9, $01, $9d, $6f, $05, $a9, $40, $9d
 f711: 88 05                        .byte   $88, $05
-f713: 20 d1 f6     <span id="L_f713">L_f713</span>          jsr     <a href="#L_f6d1">L_f6d1</a>                  
+f713: 20 d1 f6     <span id="L_f713">L_f713</span>          jsr     <a href="#EnemyType_GetAnimPtr">EnemyType_GetAnimPtr</a>    
 f716: a0 02                        ldy     #$02                    
 f718: b1 8a                        lda     ($8a),Y                 
 f71a: 9d 24 05                     sta     Entity_PosY_HiBit,X     
@@ -8638,7 +8638,7 @@ f736: bd 88 05                     lda     Entity_PosX_FracMid,X
 f739: 9d 1e 06                     sta     Entity_Movement16,X     
 f73c: a9 08                        lda     #$08                    
 f73e: 9d 82 06                     sta     Entity_AnimTick,X       
-f741: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
+f741: 20 cd f7                     jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 f744: f0 29                        beq     <a href="#L_f76f">L_f76f</a>                  
 f746: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
 f749: 20 02 b1                     jsr     <a href="#L_b102">L_b102</a>                  
@@ -8685,7 +8685,7 @@ f7bf: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_
 f7c2: 60                           rts                             
 f7c3: dd 0b 05 d0 ..<span id="D_f7c3">D_f7c3</span>          .byte   $dd, $0b, $05, $d0, $01, $60, $9d, $0b
 f7cb: 05 60                        .byte   $05, $60
-f7cd: ad 37 04     <span id="L_f7cd">L_f7cd</span>          lda     Respawn_Count           
+f7cd: ad 37 04     <span id="Entity_TickUpdate">Entity_TickUpdate</span>lda     Respawn_Count           
 f7d0: c9 ff                        cmp     #$ff                    
 f7d2: f0 68                        beq     <a href="#L_f83c">L_f83c</a>                  
 f7d4: bd ba 05                     lda     Entity_TypeParam12,X    
@@ -8778,7 +8778,7 @@ f8ad: b0 11                        bcs     <a href="#L_f8c0">L_f8c0</a>
 f8af: 18                           clc                             
 f8b0: 69 80                        adc     #$80                    
 f8b2: 9d d9 04                     sta     Entity_SpriteTile,X     
-f8b5: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
+f8b5: 20 cd f7                     jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 f8b8: f0 06                        beq     <a href="#L_f8c0">L_f8c0</a>                  
 f8ba: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
 f8bd: 4c a5 f8                     jmp     <a href="#L_f8a5">L_f8a5</a>                  
@@ -8818,7 +8818,7 @@ f8ff: 9d d9 04                     sta     Entity_SpriteTile,X
 f902: c8                           iny                             
 f903: b9 d3 fc                     lda     <a href="#DeathSprite_TileClassTable">DeathSprite_TileClassTable</a>,Y
 f906: 9d f2 04                     sta     Entity_Class,X          
-f909: 20 cd f7     <span id="L_f909">L_f909</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
+f909: 20 cd f7     <span id="L_f909">L_f909</span>          jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 f90c: f0 3c                        beq     <a href="#L_f94a">L_f94a</a>                  
 f90e: a0 01                        ldy     #$01                    
 f910: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
@@ -8859,7 +8859,7 @@ f96a: b0 11                        bcs     <a href="#L_f97d">L_f97d</a>
 f96c: 18                           clc                             
 f96d: 69 84                        adc     #$84                    
 f96f: 9d d9 04                     sta     Entity_SpriteTile,X     
-f972: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
+f972: 20 cd f7                     jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 f975: f0 06                        beq     <a href="#L_f97d">L_f97d</a>                  
 f977: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
 f97a: 4c 61 f9                     jmp     <a href="#Enemy_Death_Anim2">Enemy_Death_Anim2</a>       
@@ -8895,7 +8895,7 @@ f9c1: b0 11                        bcs     <a href="#L_f9d4">L_f9d4</a>
 f9c3: 18                           clc                             
 f9c4: 69 72                        adc     #$72                    
 f9c6: 9d d9 04                     sta     Entity_SpriteTile,X     
-f9c9: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
+f9c9: 20 cd f7                     jsr     <a href="#Entity_TickUpdate">Entity_TickUpdate</a>       
 f9cc: f0 af                        beq     <a href="#L_f97d">L_f97d</a>                  
 f9ce: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
 f9d1: 4c b7 f9                     jmp     <a href="#L_f9b7">L_f9b7</a>                  
