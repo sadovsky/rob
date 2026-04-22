@@ -4932,15 +4932,15 @@ c316: ee 1d 07                     inc     $071d
 c319: ad 1d 07                     lda     $071d                   
 c31c: c9 20                        cmp     #$20                    
 c31e: d0 ed                        bne     <a href="#L_c30d">L_c30d</a>                  
-c320: a2 03                        ldx     #$03                    
-c322: 20 2d c3     <span id="L_c322">L_c322</span>          jsr     <a href="#L_c32d">L_c32d</a>                  
+c320: a2 03        <span id="EntityClear_AllNonPlayer">EntityClear_AllNonPlayer</span>ldx     #$03                    
+c322: 20 2d c3     <span id="L_c322">L_c322</span>          jsr     <a href="#EntityClear_Slot">EntityClear_Slot</a>        
 c325: e8                           inx                             
 c326: e0 19                        cpx     #$19                    
 c328: d0 f8                        bne     <a href="#L_c322">L_c322</a>                  
 c32a: 68                           pla                             
 c32b: aa                           tax                             
 c32c: 60                           rts                             
-c32d: a9 00        <span id="L_c32d">L_c32d</span>          lda     #$00                    
+c32d: a9 00        <span id="EntityClear_Slot">EntityClear_Slot</span>lda     #$00                    
 c32f: 9d 8e 04                     sta     Entity_Active,X         
 c332: 9d d9 04                     sta     $04d9,X                 
 c335: 9d 0b 05                     sta     Entity_Direction,X      
@@ -8824,7 +8824,7 @@ f93f: a9 05 85 8a ..<span id="D_f93f">D_f93f</span>          .byte   $a9, $05, $
 f947: 20 14 ac                     .byte   $20, $14, $ac
 f94a: a9 00        <span id="L_f94a">L_f94a</span>          lda     #$00                    
 f94c: 9d 8e 04                     sta     Entity_Active,X         
-f94f: 20 2d c3                     jsr     <a href="#L_c32d">L_c32d</a>                  
+f94f: 20 2d c3                     jsr     <a href="#EntityClear_Slot">EntityClear_Slot</a>        
 f952: 20 37 c2                     jsr     <a href="#L_c237">L_c237</a>                  
 f955: ad 37 04     <span id="L_f955">L_f955</span>          lda     Respawn_Count           
 f958: c9 ff                        cmp     #$ff                    
