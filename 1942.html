@@ -98,6 +98,7 @@ Joypad1_NewPress = $0099  ; P1 controller newly-pressed bits this frame (rising 
 Joypad2_State = $009a  ; P2 controller raw state this frame (populated by Joypad_PollOne for X=1)
 Joypad2_NewPress = $009b  ; P2 controller newly-pressed bits this frame
 Fire_HoldCounter = $00db  ; frames the B (Fire) button has been held; Fire_Handler (L_d2aa) increments while held and rolls over at 10 to call Spawn_Bullet — that's the auto-fire repeat rate (~10 frames between bullets when B is held)
+Dives        = $022d  ; loop/dive counter for the player. Game Genie 022D:03 (Infinite Dives) pins this to $03, so the player can always loop. Companion to Rolls ($0436) — the two together are 1942's twin defensive moves
 P2_Active    = $0384  ; companion to P1_Active; tested by P1_LifeLost at $b80a to decide whether to swap players or game-over
 P1_Active    = $0385  ; $ff while P1 is the active player; cleared on game-over. Set at $b7da during NewGame_Init_P1
 Active_Player_Index = $0386  ; 0 = P1 currently playing, 1 = P2 currently playing. NewGame_Init_P1 inits to 0; SwapTo_P2 sets to 1, SwapTo_P1 / Restore_P1_NoSave set to 0
@@ -107,7 +108,7 @@ NametableSelect = $03a1  ; low bit drives PPUCTRL bit 1 (nametable X) at $80b8 �
 PPU_QueueReady = $03ae  ; nonzero -> NMI_Handler walks the PPU_UpdateQueue. NMI clears it on completion ($c07e); set by the queue builder at $81e2
 Player_OAM_Y = $03af  ; shadow-OAM mirror of Entity_Y[0] (player)
 Player_OAM_X = $03b2  ; shadow-OAM mirror of Entity_X[0] (player), written via DMA
-ActivePlayer_State = $0427  ; start of the 33-byte ($21) block holding the currently playing player's state. Holds Score, Lives, Rolls, Level, etc.; swapped via SwapTo_P1 / SwapTo_P2 in 2P games
+ActivePlayer_State = $0427  ; start of the 33-byte ($21) block holding the currently playing player's state. First 5 bytes ($0427..$042b) are the HUD-display score (BCD digits, low-to-high) — Game Genie 0427:00..042B:00 collectively zero the visible score. Block also holds Lives ($0432), Rolls ($0436), Level, etc.; swapped via SwapTo_P1 / SwapTo_P2 in 2P games. The canonical (true) score lives separately at TrueScore_Lo ($07bf)
 Score_D4     = $0428  ; score digit (10,000s)
 Score_D3     = $0429  ; score digit (1,000s)
 Score_D2     = $042a  ; score digit (100s)
@@ -139,6 +140,12 @@ PPU_UpdateQueue = $078f  ; variable-length PPU update queue consumed by NMI_Hand
 TwoPlayer_Mode = $07bc  ; 0 = 1P game, nonzero = 2P; set in L_b6da/L_b6f7 from menu choice, gates 2P paths in Continue_Init_P1 / NewGame_Init_P2
 WarmBoot_Magic1 = $07bd  ; first half of the warm-boot magic word; Reset_Handler skips RAM-clear when $07bd:$07be == $55:$aa
 WarmBoot_Magic2 = $07be  ; second half of the warm-boot magic word; together with WarmBoot_Magic1 distinguishes warm restart from cold power-on
+TrueScore_Lo = $07bf  ; lowest BCD digit of the actual (canonical) score. Game Genie 07BF:00 forces this to 0 every frame. The full true-score block is 6 BCD bytes at $07bf..$07c4, written by the score-add routines and copied to the HUD-display copy at $0427..$042b. Pinning all 6 to 0 (the 'True Score' cheat) makes the player rank as 0 score for high-score purposes
+TrueScore_b1 = $07c0  ; second BCD digit of the true score (see TrueScore_Lo for full block notes)
+TrueScore_b2 = $07c1  ; third BCD digit of the true score
+TrueScore_b3 = $07c2  ; fourth BCD digit of the true score
+TrueScore_b4 = $07c3  ; fifth BCD digit of the true score
+TrueScore_Hi = $07c4  ; highest BCD digit of the true score
 
 8000: a9 1e        <span id="L_8000">L_8000</span>          lda     #$1e                    
 8002: 8d 8e 03                     sta     $038e                   
@@ -2771,7 +2778,7 @@ acbf: 8d 2f 04                     sta     $042f
 acc2: 4c c8 ac                     jmp     <a href="#L_acc8">L_acc8</a>                  
 acc5: 8d 30 04     <span id="D_acc5">D_acc5</span>          .byte   $8d, $30, $04
 acc8: a0 00        <span id="L_acc8">L_acc8</span>          ldy     #$00                    
-acca: b9 bf 07     <span id="L_acca">L_acca</span>          lda     $07bf,Y                 
+acca: b9 bf 07     <span id="L_acca">L_acca</span>          lda     TrueScore_Lo,Y          
 accd: d9 27 04                     cmp     ActivePlayer_State,Y    
 acd0: 90 0e                        bcc     <a href="#L_ace0">L_ace0</a>                  
 acd2: d0 05                        bne     <a href="#L_acd9">L_acd9</a>                  
@@ -2783,7 +2790,7 @@ acdc: ac 8c 03                     ldy     $038c
 acdf: 60                           rts                             
 ace0: a0 00        <span id="L_ace0">L_ace0</span>          ldy     #$00                    
 ace2: b9 27 04     <span id="L_ace2">L_ace2</span>          lda     ActivePlayer_State,Y    
-ace5: 99 bf 07                     sta     $07bf,Y                 
+ace5: 99 bf 07                     sta     TrueScore_Lo,Y          
 ace8: c8                           iny                             
 ace9: c0 06                        cpy     #$06                    
 aceb: d0 f5                        bne     <a href="#L_ace2">L_ace2</a>                  
@@ -2791,13 +2798,13 @@ aced: ad 86 03                     lda     Active_Player_Index
 acf0: d0 0e                        bne     <a href="#L_ad00">L_ad00</a>                  
 acf2: a0 05                        ldy     #$05                    
 acf4: b9 4a 04     <span id="L_acf4">L_acf4</span>          lda     P1_SavedState,Y         
-acf7: 99 bf 07                     sta     $07bf,Y                 
+acf7: 99 bf 07                     sta     TrueScore_Lo,Y          
 acfa: 88                           dey                             
 acfb: 10 f7                        bpl     <a href="#L_acf4">L_acf4</a>                  
 acfd: 4c d9 ac                     jmp     <a href="#L_acd9">L_acd9</a>                  
 ad00: a0 05        <span id="L_ad00">L_ad00</span>          ldy     #$05                    
 ad02: b9 6b 04     <span id="L_ad02">L_ad02</span>          lda     P2_SavedState,Y         
-ad05: 99 bf 07                     sta     $07bf,Y                 
+ad05: 99 bf 07                     sta     TrueScore_Lo,Y          
 ad08: 88                           dey                             
 ad09: 10 f7                        bpl     <a href="#L_ad02">L_ad02</a>                  
 ad0b: 4c d9 ac                     jmp     <a href="#L_acd9">L_acd9</a>                  
@@ -3409,9 +3416,9 @@ b43d: c9 79                        cmp     #$79
 b43f: f0 0f                        beq     <a href="#L_b450">L_b450</a>                  
 b441: b9 d3 05     <span id="L_b441">L_b441</span>          lda     $05d3,Y                 
 b444: c9 ff                        cmp     #$ff                    
-b446: 90 03                        bcc     <a href="#L_b44b">L_b44b</a>                  
+b446: 90 03                        bcc     <a href="#Collision_Player_JSR">Collision_Player_JSR</a>    
 b448: 4c c5 b4                     jmp     <a href="#L_b4c5">L_b4c5</a>                  
-b44b: 20 61 aa     <span id="L_b44b">L_b44b</span>          jsr     <a href="#L_aa61">L_aa61</a>                  
+b44b: 20 61 aa     <span id="Collision_Player_JSR">Collision_Player_JSR</span>jsr     <a href="#L_aa61">L_aa61</a>                  
 b44e: b0 09                        bcs     <a href="#L_b459">L_b459</a>                  
 b450: c8           <span id="L_b450">L_b450</span>          iny                             
 b451: c0 19                        cpy     #$19                    
@@ -3524,7 +3531,7 @@ b561: b9 8e 04                     lda     Entity_Active,Y
 b564: 29 04                        and     #$04                    
 b566: d0 0c        <span id="L_b566">L_b566</span>          bne     <a href="#L_b574">L_b574</a>                  
 b568: b9 8e 04     <span id="L_b568">L_b568</span>          lda     Entity_Active,Y         
-b56b: 29 10                        and     #$10                    
+b56b: 29 10        <span id="Collision_Mask10">Collision_Mask10</span>and     #$10                    
 b56d: d0 0a                        bne     <a href="#L_b579">L_b579</a>                  
 b56f: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
 b572: b0 09                        bcs     <a href="#L_b57d">L_b57d</a>                  
@@ -3742,7 +3749,7 @@ b807: 20 a1 d7     <span id="P1_LifeLost">P1_LifeLost</span>     jsr     <a href
 b80a: ad 84 03                     lda     P2_Active               
 b80d: d0 1b                        bne     <a href="#L_b82a">L_b82a</a>                  
 b80f: ad 32 04                     lda     Lives_Ones              
-b812: d0 10                        bne     <a href="#L_b824">L_b824</a>                  
+b812: d0 10                        bne     <a href="#LiveDec_Borrow_Site">LiveDec_Borrow_Site</a>     
 b814: ad 31 04                     lda     Lives_Tens              
 b817: f0 11                        beq     <a href="#L_b82a">L_b82a</a>                  
 b819: ce 31 04                     dec     Lives_Tens              
@@ -5739,15 +5746,15 @@ d2ee: a2 00                        ldx     #$00
 d2f0: 4c 72 d4                     jmp     <a href="#DPad_Handler">DPad_Handler</a>            
 d2f3: a9 00 8d 0b ..<span id="D_d2f3">D_d2f3</span>          .byte   $a9, $00, $8d, $0b, $05, $4c, $9a, $d1
 d2fb: a9 08 8d 0b ..<span id="D_d2fb">D_d2fb</span>          .byte   $a9, $08, $8d, $0b, $05, $4c, $9a, $d1
-d303: ad 36 04 d0 ..<span id="D_d303">D_d303</span>          .byte   $ad, $36, $04, $d0, $01, $60, $ce, $36
-d30b: 04 ad 8e 04 ..                .byte   $04, $ad, $8e, $04, $09, $10, $8d, $8e
-d313: 04 a9 00 8d ..                .byte   $04, $a9, $00, $8d, $9b, $06, $a9, $15
-d31b: 20 6b a0 20 ..                .byte   $20, $6b, $a0, $20, $de, $d2, $20, $f3
-d323: d2 c9 08 90 ..                .byte   $d2, $c9, $08, $90, $f6, $a9, $a1, $8d
-d32b: d9 04 a9 00 ..                .byte   $d9, $04, $a9, $00, $8d, $9b, $06, $20
-d333: de d2 20 f3 ..                .byte   $de, $d2, $20, $f3, $d2, $c9, $04, $90
-d33b: f6 ee d9 04 ..                .byte   $f6, $ee, $d9, $04, $a9, $00, $8d, $9b
-d343: 06                           .byte   $06
+d303: ad 36 04 d0 ..<span id="D_d303">D_d303</span>          .byte   $ad, $36, $04, $d0, $01, $60
+d309: ce 36 04 ad ..<span id="D_d309">D_d309</span>          .byte   $ce, $36, $04, $ad, $8e, $04, $09, $10
+d311: 8d 8e 04 a9 ..                .byte   $8d, $8e, $04, $a9, $00, $8d, $9b, $06
+d319: a9 15 20 6b ..                .byte   $a9, $15, $20, $6b, $a0, $20, $de, $d2
+d321: 20 f3 d2 c9 ..                .byte   $20, $f3, $d2, $c9, $08, $90, $f6, $a9
+d329: a1 8d d9 04 ..                .byte   $a1, $8d, $d9, $04, $a9, $00, $8d, $9b
+d331: 06 20 de d2 ..                .byte   $06, $20, $de, $d2, $20, $f3, $d2, $c9
+d339: 04 90 f6 ee ..                .byte   $04, $90, $f6, $ee, $d9, $04, $a9, $00
+d341: 8d 9b 06                     .byte   $8d, $9b, $06
 d344: 20 de d2 20 ..<span id="D_d344">D_d344</span>          .byte   $20, $de, $d2, $20, $fb, $d2, $c9, $04
 d34c: 90 f6        <span id="L_d34c">L_d34c</span>          bcc     <a href="#L_d344">L_d344</a>                  
 d34e: ee d9 04                     inc     $04d9                   
@@ -6569,7 +6576,7 @@ db6f: 8d 0b 07                     sta     $070b
 db72: ad 18 07     <span id="L_db72">L_db72</span>          lda     $0718                   
 db75: c9 ff                        cmp     #$ff                    
 db77: d0 03                        bne     <a href="#L_db7c">L_db7c</a>                  
-db79: 4c 01 dc                     jmp     <a href="#L_dc01">L_dc01</a>                  
+db79: 4c 01 dc                     jmp     <a href="#LifeLoss_Reset_07c5">LifeLoss_Reset_07c5</a>     
 db7c: c9 00        <span id="L_db7c">L_db7c</span>          cmp     #$00                    
 db7e: f0 12                        beq     <a href="#L_db92">L_db92</a>                  
 db80: c9 01                        cmp     #$01                    
@@ -6579,13 +6586,13 @@ db86: f0 34                        beq     <a href="#L_dbbc">L_dbbc</a>
 db88: c9 03                        cmp     #$03                    
 db8a: f0 11                        beq     <a href="#L_db9d">L_db9d</a>                  
 db8c: 20 0e ad                     jsr     <a href="#L_ad0e">L_ad0e</a>                  
-db8f: 4c 01 dc                     jmp     <a href="#L_dc01">L_dc01</a>                  
+db8f: 4c 01 dc                     jmp     <a href="#LifeLoss_Reset_07c5">LifeLoss_Reset_07c5</a>     
 db92: ad 8e 04 09 ..<span id="D_db92">D_db92</span>          .byte   $ad, $8e, $04, $09, $02, $8d, $8e, $04
 db9a: 4c 01 dc                     .byte   $4c, $01, $dc
 db9d: 20 29 e2 4c ..<span id="D_db9d">D_db9d</span>          .byte   $20, $29, $e2, $4c, $01, $dc
 dba3: a0 0e        <span id="L_dba3">L_dba3</span>          ldy     #$0e                    
 dba5: c0 16        <span id="L_dba5">L_dba5</span>          cpy     #$16                    
-dba7: f0 58                        beq     <a href="#L_dc01">L_dc01</a>                  
+dba7: f0 58                        beq     <a href="#LifeLoss_Reset_07c5">LifeLoss_Reset_07c5</a>     
 dba9: b9 8e 04                     lda     Entity_Active,Y         
 dbac: 29 08                        and     #$08                    
 dbae: f0 08                        beq     <a href="#L_dbb8">L_dbb8</a>                  
@@ -6595,9 +6602,9 @@ dbb5: 99 8e 04                     sta     Entity_Active,Y
 dbb8: c8           <span id="L_dbb8">L_dbb8</span>          iny                             
 dbb9: 4c a5 db                     jmp     <a href="#L_dba5">L_dba5</a>                  
 dbbc: ad 8f 04     <span id="L_dbbc">L_dbbc</span>          lda     $048f                   
-dbbf: 30 40                        bmi     <a href="#L_dc01">L_dc01</a>                  
+dbbf: 30 40                        bmi     <a href="#LifeLoss_Reset_07c5">LifeLoss_Reset_07c5</a>     
 dbc1: ad 90 04                     lda     $0490                   
-dbc4: 30 3b                        bmi     <a href="#L_dc01">L_dc01</a>                  
+dbc4: 30 3b                        bmi     <a href="#LifeLoss_Reset_07c5">LifeLoss_Reset_07c5</a>     
 dbc6: a0 01                        ldy     #$01                    
 dbc8: a9 00                        lda     #$00                    
 dbca: 99 6f 05                     sta     $056f,Y                 
@@ -6624,7 +6631,7 @@ dbf9: 99 f2 04                     sta     $04f2,Y
 dbfc: c8                           iny                             
 dbfd: c0 03                        cpy     #$03                    
 dbff: 90 dd                        bcc     <a href="#L_dbde">L_dbde</a>                  
-dc01: a9 ff        <span id="L_dc01">L_dc01</span>          lda     #$ff                    
+dc01: a9 ff        <span id="LifeLoss_Reset_07c5">LifeLoss_Reset_07c5</span>lda     #$ff                    
 dc03: 8d 18 07                     sta     $0718                   
 dc06: ad 46 04                     lda     $0446                   
 dc09: d0 12                        bne     <a href="#L_dc1d">L_dc1d</a>                  
@@ -8669,7 +8676,7 @@ f809: b9 8e 04                     lda     Entity_Active,Y
 f80c: 29 04                        and     #$04                    
 f80e: d0 25                        bne     <a href="#L_f835">L_f835</a>                  
 f810: b9 8e 04     <span id="L_f810">L_f810</span>          lda     Entity_Active,Y         
-f813: 29 10                        and     #$10                    
+f813: 29 10        <span id="Collision_Mask10_Alt">Collision_Mask10_Alt</span>and     #$10                    
 f815: d0 23                        bne     <a href="#L_f83a">L_f83a</a>                  
 f817: b9 8e 04                     lda     Entity_Active,Y         
 f81a: 29 20                        and     #$20                    
@@ -8678,7 +8685,7 @@ f81e: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>
 f821: 90 12                        bcc     <a href="#L_f835">L_f835</a>                  
 f823: b9 8e 04                     lda     Entity_Active,Y         
 f826: 09 01                        ora     #$01                    
-f828: 99 8e 04                     sta     Entity_Active,Y         
+f828: 99 8e 04     <span id="EnemyActivate_Store">EnemyActivate_Store</span>sta     Entity_Active,Y         
 f82b: bd 8e 04                     lda     Entity_Active,X         
 f82e: 09 40                        ora     #$40                    
 f830: 9d 8e 04                     sta     Entity_Active,X         
