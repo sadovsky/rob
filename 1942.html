@@ -3685,7 +3685,7 @@ b6b8: 99 d9 04                     sta     Entity_SpriteTile,Y
 b6bb: a9 1a                        lda     #$1a                    
 b6bd: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 b6c0: a9 ff                        lda     #$ff                    
-b6c2: 8d 0b 07                     sta     TitleMenu_FrameTimer    
+b6c2: 8d 0b 07     <span id="TitleMenuTimer_StoreSite">TitleMenuTimer_StoreSite</span>sta     TitleMenu_FrameTimer    
 b6c5: 20 75 c2     <span id="TitleMenu_Handler">TitleMenu_Handler</span>jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
 b6c8: a5 98                        lda     Joypad1_State           
 b6ca: 29 20                        and     #$20                    
@@ -3732,7 +3732,7 @@ b74c: d0 0d                        bne     <a href="#L_b75b">L_b75b</a>
 b74e: a0 04                        ldy     #$04                    
 b750: b9 2a 03     <span id="L_b750">L_b750</span>          lda     TitleMenu_CursorMask,Y  
 b753: 49 ff                        eor     #$ff                    
-b755: 99 2a 03                     sta     TitleMenu_CursorMask,Y  
+b755: 99 2a 03     <span id="TitleCursorMask_StoreSite">TitleCursorMask_StoreSite</span>sta     TitleMenu_CursorMask,Y  
 b758: 88                           dey                             
 b759: 10 f5                        bpl     <a href="#L_b750">L_b750</a>                  
 b75b: 4c c5 b6     <span id="L_b75b">L_b75b</span>          jmp     <a href="#TitleMenu_Handler">TitleMenu_Handler</a>       
@@ -5839,7 +5839,7 @@ d3b3: 29 ef                        and     #$ef
 d3b5: 8d 8e 04                     sta     Entity_Active           
 d3b8: 60                           rts                             
 d3b9: a9 0b        <span id="Spawn_Bullet">Spawn_Bullet</span>    lda     #$0b                    
-d3bb: 8d 1a 07                     sta     Bullet_TargetSlot       
+d3bb: 8d 1a 07     <span id="BulletTargetSlot_StoreSite">BulletTargetSlot_StoreSite</span>sta     Bullet_TargetSlot       
 d3be: a9 01                        lda     #$01                    
 d3c0: 8d 19 07                     sta     Bullet_SpawnPending     
 d3c3: ac 1a 07     <span id="L_d3c3">L_d3c3</span>          ldy     Bullet_TargetSlot       
