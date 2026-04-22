@@ -114,6 +114,9 @@ Score_D3     = $0429  ; score digit (1,000s)
 Score_D2     = $042a  ; score digit (100s)
 Score_D1     = $042b  ; score digit (10s)
 Score_D0     = $042c  ; score digit (1s)
+ExtraLife_PendingFlag = $042e  ; set to $ff at $ac7e once the score crosses an extra-life threshold; a nonzero value suppresses re-checking the threshold (the bne $ac8e bypass at $ac72) so each crossing only awards one life. Cleared on game-init
+ExtraLife_NextThresh_Hi = $042f  ; high BCD digit of the running 'next extra-life' threshold. Bumped at $acbd via `lda $042f / clc / adc #$01` after each extra life is awarded — combined with the +8 carry into ExtraLife_NextThresh_Lo this raises the next threshold by 80,000 points
+ExtraLife_NextThresh_Lo = $0430  ; low BCD digit of the next-extra-life threshold; cleared by the threshold trigger at $ac85 then BCD-incremented by 8 at $acad each award (40 -> 48 wraps to 50, etc.). The first threshold (Score_D4 >= 2 -> 200,000) is hardcoded at $ac74 — these counters only steer subsequent extra lives
 Lives_Tens   = $0431  ; lives tens digit
 Lives_Ones   = $0432  ; lives ones digit (starts at 02)
 Rolls        = $0436  ; special rolls remaining (starts at 03)
@@ -1671,7 +1674,7 @@ a065: d0 f6                        bne     <a href="#L_a05d">L_a05d</a>
 a067: 18                           clc                             
 a068: 60                           rts                             
 a069: 38 60        <span id="D_a069">D_a069</span>          .byte   $38, $60
-a06b: a8           <span id="L_a06b">L_a06b</span>          tay                             
+a06b: a8           <span id="PPU_Queue_Refresh">PPU_Queue_Refresh</span>tay                             
 a06c: 4a                           lsr     A                       
 a06d: 4a                           lsr     A                       
 a06e: 4a                           lsr     A                       
@@ -2678,7 +2681,7 @@ aba4: ab c9 79 b0 ..                .byte   $ab, $c9, $79, $b0, $05, $a9, $0d, $
 abac: c2 ab c9 8e ..                .byte   $c2, $ab, $c9, $8e, $b0, $05, $a9, $0e
 abb4: 4c c2 ab c9 ..                .byte   $4c, $c2, $ab, $c9, $8f, $b0, $05, $a9
 abbc: 0f 4c c2 ab ..                .byte   $0f, $4c, $c2, $ab, $a9, $10
-abc2: 0a           <span id="L_abc2">L_abc2</span>          asl     A                       
+abc2: 0a           <span id="Score_LookupValue">Score_LookupValue</span>asl     A                       
 abc3: 0a                           asl     A                       
 abc4: 18                           clc                             
 abc5: 69 d0                        adc     #$d0                    
@@ -2705,10 +2708,10 @@ ac0e: 20 3c 48                     jsr     $483c
 ac11: 48                           pha                             
 ac12: 08                           php                             
 ac13: 08                           php                             
-ac14: a9 00        <span id="L_ac14">L_ac14</span>          lda     #$00                    
+ac14: a9 00        <span id="Score_AddBCD_LowOnly">Score_AddBCD_LowOnly</span>lda     #$00                    
 ac16: 85 89                        sta     PPU_AddrHi              
 ac18: 85 88                        sta     PPU_AddrLo              
-ac1a: 8e 8b 03     <span id="L_ac1a">L_ac1a</span>          stx     $038b                   
+ac1a: 8e 8b 03     <span id="Score_AddBCD">Score_AddBCD</span>    stx     $038b                   
 ac1d: 8c 8c 03                     sty     $038c                   
 ac20: ad 2b 04                     lda     Score_D1                
 ac23: 18                           clc                             
@@ -2746,41 +2749,41 @@ ac64: 90 03                        bcc     <a href="#L_ac69">L_ac69</a>
 ac66: 38                           sec                             
 ac67: e9 0a                        sbc     #$0a                    
 ac69: 8d 27 04     <span id="L_ac69">L_ac69</span>          sta     ActivePlayer_State      
-ac6c: 20 39 ad                     jsr     <a href="#L_ad39">L_ad39</a>                  
-ac6f: ad 2e 04                     lda     $042e                   
+ac6c: 20 39 ad                     jsr     <a href="#HUD_Score_To_OAM">HUD_Score_To_OAM</a>        
+ac6f: ad 2e 04     <span id="Score_PostAdd">Score_PostAdd</span>   lda     ExtraLife_PendingFlag   
 ac72: d0 1a                        bne     <a href="#L_ac8e">L_ac8e</a>                  
 ac74: ad 28 04                     lda     Score_D4                
 ac77: c9 02                        cmp     #$02                    
 ac79: b0 03                        bcs     <a href="#L_ac7e">L_ac7e</a>                  
-ac7b: 4c c8 ac                     jmp     <a href="#L_acc8">L_acc8</a>                  
+ac7b: 4c c8 ac                     jmp     <a href="#Score_Sync">Score_Sync</a>              
 ac7e: a9 ff        <span id="L_ac7e">L_ac7e</span>          lda     #$ff                    
-ac80: 8d 2e 04                     sta     $042e                   
+ac80: 8d 2e 04                     sta     ExtraLife_PendingFlag   
 ac83: a9 00                        lda     #$00                    
-ac85: 8d 30 04                     sta     $0430                   
-ac88: 8d 2f 04                     sta     $042f                   
+ac85: 8d 30 04                     sta     ExtraLife_NextThresh_Lo 
+ac88: 8d 2f 04                     sta     ExtraLife_NextThresh_Hi 
 ac8b: 4c a6 ac                     jmp     <a href="#L_aca6">L_aca6</a>                  
 ac8e: ad 27 04 cd ..<span id="D_ac8e">D_ac8e</span>          .byte   $ad, $27, $04, $cd, $2f, $04, $f0, $05
 ac96: b0 0e 4c c8 ..                .byte   $b0, $0e, $4c, $c8, $ac, $ad, $28, $04
 ac9e: cd 30 04 b0 ..                .byte   $cd, $30, $04, $b0, $03, $4c, $c8, $ac
-aca6: 20 0e ad     <span id="L_aca6">L_aca6</span>          jsr     <a href="#L_ad0e">L_ad0e</a>                  
-aca9: ad 30 04                     lda     $0430                   
+aca6: 20 0e ad     <span id="L_aca6">L_aca6</span>          jsr     <a href="#Award_Extra_Life">Award_Extra_Life</a>        
+aca9: ad 30 04                     lda     ExtraLife_NextThresh_Lo 
 acac: 18                           clc                             
 acad: 69 08                        adc     #$08                    
 acaf: c9 0a                        cmp     #$0a                    
 acb1: 90 12                        bcc     <a href="#L_acc5">L_acc5</a>                  
 acb3: 38                           sec                             
 acb4: e9 0a                        sbc     #$0a                    
-acb6: 8d 30 04                     sta     $0430                   
-acb9: ad 2f 04                     lda     $042f                   
+acb6: 8d 30 04                     sta     ExtraLife_NextThresh_Lo 
+acb9: ad 2f 04                     lda     ExtraLife_NextThresh_Hi 
 acbc: 18                           clc                             
 acbd: 69 01                        adc     #$01                    
-acbf: 8d 2f 04                     sta     $042f                   
-acc2: 4c c8 ac                     jmp     <a href="#L_acc8">L_acc8</a>                  
+acbf: 8d 2f 04                     sta     ExtraLife_NextThresh_Hi 
+acc2: 4c c8 ac                     jmp     <a href="#Score_Sync">Score_Sync</a>              
 acc5: 8d 30 04     <span id="D_acc5">D_acc5</span>          .byte   $8d, $30, $04
-acc8: a0 00        <span id="L_acc8">L_acc8</span>          ldy     #$00                    
+acc8: a0 00        <span id="Score_Sync">Score_Sync</span>      ldy     #$00                    
 acca: b9 bf 07     <span id="L_acca">L_acca</span>          lda     TrueScore_Lo,Y          
 accd: d9 27 04                     cmp     ActivePlayer_State,Y    
-acd0: 90 0e                        bcc     <a href="#L_ace0">L_ace0</a>                  
+acd0: 90 0e                        bcc     <a href="#Score_CopyDispToTrue">Score_CopyDispToTrue</a>    
 acd2: d0 05                        bne     <a href="#L_acd9">L_acd9</a>                  
 acd4: c8                           iny                             
 acd5: c0 06                        cpy     #$06                    
@@ -2788,7 +2791,7 @@ acd7: d0 f1                        bne     <a href="#L_acca">L_acca</a>
 acd9: ae 8b 03     <span id="L_acd9">L_acd9</span>          ldx     $038b                   
 acdc: ac 8c 03                     ldy     $038c                   
 acdf: 60                           rts                             
-ace0: a0 00        <span id="L_ace0">L_ace0</span>          ldy     #$00                    
+ace0: a0 00        <span id="Score_CopyDispToTrue">Score_CopyDispToTrue</span>ldy     #$00                    
 ace2: b9 27 04     <span id="L_ace2">L_ace2</span>          lda     ActivePlayer_State,Y    
 ace5: 99 bf 07                     sta     TrueScore_Lo,Y          
 ace8: c8                           iny                             
@@ -2796,7 +2799,7 @@ ace9: c0 06                        cpy     #$06
 aceb: d0 f5                        bne     <a href="#L_ace2">L_ace2</a>                  
 aced: ad 86 03                     lda     Active_Player_Index     
 acf0: d0 0e                        bne     <a href="#L_ad00">L_ad00</a>                  
-acf2: a0 05                        ldy     #$05                    
+acf2: a0 05        <span id="Score_ReloadFromSaved">Score_ReloadFromSaved</span>ldy     #$05                    
 acf4: b9 4a 04     <span id="L_acf4">L_acf4</span>          lda     P1_SavedState,Y         
 acf7: 99 bf 07                     sta     TrueScore_Lo,Y          
 acfa: 88                           dey                             
@@ -2808,7 +2811,7 @@ ad05: 99 bf 07                     sta     TrueScore_Lo,Y
 ad08: 88                           dey                             
 ad09: 10 f7                        bpl     <a href="#L_ad02">L_ad02</a>                  
 ad0b: 4c d9 ac                     jmp     <a href="#L_acd9">L_acd9</a>                  
-ad0e: ee 32 04     <span id="L_ad0e">L_ad0e</span>          inc     Lives_Ones              
+ad0e: ee 32 04     <span id="Award_Extra_Life">Award_Extra_Life</span>inc     Lives_Ones              
 ad11: ad 32 04                     lda     Lives_Ones              
 ad14: c9 0a                        cmp     #$0a                    
 ad16: 90 17                        bcc     <a href="#L_ad2f">L_ad2f</a>                  
@@ -2822,9 +2825,9 @@ ad27: 4c 2f ad                     jmp     <a href="#L_ad2f">L_ad2f</a>
 ad2a: a9 09        <span id="L_ad2a">L_ad2a</span>          lda     #$09                    
 ad2c: 8d 31 04                     sta     Lives_Tens              
 ad2f: a9 10        <span id="L_ad2f">L_ad2f</span>          lda     #$10                    
-ad31: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+ad31: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 ad34: a9 11                        lda     #$11                    
-ad36: 4c 6b a0                     jmp     <a href="#L_a06b">L_a06b</a>                  
+ad36: 4c 6b a0                     jmp     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 ad39: ad 80 03 c9 ..<span id="D_ad39">D_ad39</span>          .byte   $ad, $80, $03, $c9, $ff, $d0
 ad3f: 01 60        <span id="L_ad3f">L_ad3f</span>          ora     ($60,X)                 
 ad41: a0 00                        ldy     #$00                    
@@ -3734,7 +3737,7 @@ b7e2: a9 00                        lda     #$00
 b7e4: 8d 8c 04                     sta     $048c                   
 b7e7: 8d 86 03                     sta     Active_Player_Index     
 b7ea: 85 c9                        sta     $c9                     
-b7ec: 8d 2e 04                     sta     $042e                   
+b7ec: 8d 2e 04                     sta     ExtraLife_PendingFlag   
 b7ef: 8d 8d 03                     sta     $038d                   
 b7f2: a0 11                        ldy     #$11                    
 b7f4: 99 37 04     <span id="L_b7f4">L_b7f4</span>          sta     Respawn_Count,Y         
@@ -3777,7 +3780,7 @@ b855: 20 58 bf                     jsr     <a href="#SwapTo_P2">SwapTo_P2</a>
 b858: a9 02        <span id="NewGame_Init_P2">NewGame_Init_P2</span> lda     #$02                    
 b85a: 8d 32 04                     sta     Lives_Ones              
 b85d: a9 00                        lda     #$00                    
-b85f: 8d 2e 04                     sta     $042e                   
+b85f: 8d 2e 04                     sta     ExtraLife_PendingFlag   
 b862: a0 11                        ldy     #$11                    
 b864: 99 37 04     <span id="L_b864">L_b864</span>          sta     Respawn_Count,Y         
 b867: 88                           dey                             
@@ -4219,9 +4222,9 @@ bd33: 09 08                        ora     #$08
 bd35: 85 8c                        sta     PPUCTRL_Shadow          
 bd37: 4c 75 c2                     jmp     <a href="#L_c275">L_c275</a>                  
 bd3a: a9 07        <span id="L_bd3a">L_bd3a</span>          lda     #$07                    
-bd3c: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+bd3c: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 bd3f: a9 09                        lda     #$09                    
-bd41: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+bd41: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 bd44: ad 84 03                     lda     P2_Active               
 bd47: d0 22                        bne     <a href="#L_bd6b">L_bd6b</a>                  
 bd49: ad 86 03                     lda     Active_Player_Index     
@@ -5555,7 +5558,7 @@ d0b7: 8d 0b 05                     sta     Entity_Direction
 d0ba: a9 08                        lda     #$08                    
 d0bc: 8d ba 05                     sta     $05ba                   
 d0bf: a9 0a        <span id="L_d0bf">L_d0bf</span>          lda     #$0a                    
-d0c1: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+d0c1: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d0c4: 20 9a d1                     jsr     <a href="#L_d19a">L_d19a</a>                  
 d0c7: c9 28                        cmp     #$28                    
 d0c9: 90 f4                        bcc     <a href="#L_d0bf">L_d0bf</a>                  
@@ -5565,7 +5568,7 @@ d0d0: ee d9 04                     inc     $04d9
 d0d3: a9 00                        lda     #$00                    
 d0d5: 8d 9b 06                     sta     $069b                   
 d0d8: a9 15                        lda     #$15                    
-d0da: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+d0da: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d0dd: 20 9a d1     <span id="L_d0dd">L_d0dd</span>          jsr     <a href="#L_d19a">L_d19a</a>                  
 d0e0: c9 08                        cmp     #$08                    
 d0e2: 90 f9                        bcc     <a href="#L_d0dd">L_d0dd</a>                  
@@ -5616,9 +5619,9 @@ d154: 20 9a d1     <span id="L_d154">L_d154</span>          jsr     <a href="#L_
 d157: c9 0a                        cmp     #$0a                    
 d159: 90 f9                        bcc     <a href="#L_d154">L_d154</a>                  
 d15b: a9 0e        <span id="L_d15b">L_d15b</span>          lda     #$0e                    
-d15d: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+d15d: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d160: a9 16                        lda     #$16                    
-d162: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+d162: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d165: a9 01                        lda     #$01                    
 d167: 8d 6f 05                     sta     $056f                   
 d16a: 8d 24 05                     sta     $0524                   
@@ -5857,7 +5860,7 @@ d450: a9 0d 99 d9 ..<span id="D_d450">D_d450</span>          .byte   $a9, $0d, $
 d455: a9 01        <span id="L_d455">L_d455</span>          lda     #$01                    
 d457: 99 f2 04                     sta     $04f2,Y                 
 d45a: a9 14                        lda     #$14                    
-d45c: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+d45c: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d45f: ce 19 07                     dec     Bullet_SpawnPending     
 d462: f0 0d                        beq     <a href="#L_d471">L_d471</a>                  
 d464: ee 1a 07                     inc     Bullet_TargetSlot       
@@ -5951,7 +5954,7 @@ d5af: 9d 9b 06                     sta     $069b,X
 d5b2: a9 01                        lda     #$01                    
 d5b4: 9d f2 04                     sta     $04f2,X                 
 d5b7: a9 12                        lda     #$12                    
-d5b9: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+d5b9: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d5bc: fe 9b 06                     inc     $069b,X                 
 d5bf: bd 9b 06                     lda     $069b,X                 
 d5c2: e0 00                        cpx     #$00                    
@@ -6164,7 +6167,7 @@ d7d6: 20 3e a7                     jsr     <a href="#L_a73e">L_a73e</a>
 d7d9: a9 00                        lda     #$00                    
 d7db: 85 8b                        sta     PPU_SrcHi               
 d7dd: 85 8a                        sta     PPU_SrcLo               
-d7df: 20 14 ac                     jsr     <a href="#L_ac14">L_ac14</a>                  
+d7df: 20 14 ac                     jsr     <a href="#Score_AddBCD_LowOnly">Score_AddBCD_LowOnly</a>    
 d7e2: a5 8d                        lda     $8d                     
 d7e4: 09 18                        ora     #$18                    
 d7e6: 85 8d                        sta     $8d                     
@@ -6230,11 +6233,11 @@ d871: d0 18                        bne     <a href="#L_d88b">L_d88b</a>
 d873: ad 37 04                     lda     Respawn_Count           
 d876: f0 13                        beq     <a href="#L_d88b">L_d88b</a>                  
 d878: a9 04                        lda     #$04                    
-d87a: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+d87a: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d87d: a9 05                        lda     #$05                    
-d87f: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+d87f: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d882: a9 06                        lda     #$06                    
-d884: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+d884: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d887: a9 00                        lda     #$00                    
 d889: 85 c9                        sta     $c9                     
 d88b: a0 0e        <span id="L_d88b">L_d88b</span>          ldy     #$0e                    
@@ -6585,7 +6588,7 @@ db84: c9 02                        cmp     #$02
 db86: f0 34                        beq     <a href="#L_dbbc">L_dbbc</a>                  
 db88: c9 03                        cmp     #$03                    
 db8a: f0 11                        beq     <a href="#L_db9d">L_db9d</a>                  
-db8c: 20 0e ad                     jsr     <a href="#L_ad0e">L_ad0e</a>                  
+db8c: 20 0e ad                     jsr     <a href="#Award_Extra_Life">Award_Extra_Life</a>        
 db8f: 4c 01 dc                     jmp     <a href="#LifeLoss_Reset_07c5">LifeLoss_Reset_07c5</a>     
 db92: ad 8e 04 09 ..<span id="D_db92">D_db92</span>          .byte   $ad, $8e, $04, $09, $02, $8d, $8e, $04
 db9a: 4c 01 dc                     .byte   $4c, $01, $dc
@@ -6730,7 +6733,7 @@ dce8: 69 02                        adc     #$02
 dcea: c9 20                        cmp     #$20                    
 dcec: d0 f6                        bne     <a href="#L_dce4">L_dce4</a>                  
 dcee: a9 03                        lda     #$03                    
-dcf0: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+dcf0: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 dcf3: 20 75 c2     <span id="L_dcf3">L_dcf3</span>          jsr     <a href="#L_c275">L_c275</a>                  
 dcf6: a0 05                        ldy     #$05                    
 dcf8: a9 03                        lda     #$03                    
@@ -6739,11 +6742,11 @@ dcfd: f0 f4                        beq     <a href="#L_dcf3">L_dcf3</a>
 dcff: 88                           dey                             
 dd00: 10 f8                        bpl     <a href="#L_dcfa">L_dcfa</a>                  
 dd02: a9 00                        lda     #$00                    
-dd04: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+dd04: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 dd07: a9 01                        lda     #$01                    
-dd09: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+dd09: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 dd0c: a9 02                        lda     #$02                    
-dd0e: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+dd0e: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 dd11: 20 d0 a0                     jsr     <a href="#L_a0d0">L_a0d0</a>                  
 dd14: 20 75 c2     <span id="L_dd14">L_dd14</span>          jsr     <a href="#L_c275">L_c275</a>                  
 dd17: a9 ff                        lda     #$ff                    
@@ -6777,9 +6780,9 @@ dd53: b0 0e                        bcs     <a href="#L_dd63">L_dd63</a>
 dd55: a9 ff                        lda     #$ff                    
 dd57: 85 c9                        sta     $c9                     
 dd59: a9 0e                        lda     #$0e                    
-dd5b: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+dd5b: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 dd5e: a9 16                        lda     #$16                    
-dd60: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+dd60: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 dd63: ad 8d 07     <span id="L_dd63">L_dd63</span>          lda     $078d                   
 dd66: c9 ff                        cmp     #$ff                    
 dd68: d0 03                        bne     <a href="#L_dd6d">L_dd6d</a>                  
@@ -7049,7 +7052,7 @@ e040: e8                           inx
 e041: e8                           inx                             
 e042: c0 04                        cpy     #$04                    
 e044: 90 f1                        bcc     <a href="#L_e037">L_e037</a>                  
-e046: 20 1a ac                     jsr     <a href="#L_ac1a">L_ac1a</a>                  
+e046: 20 1a ac                     jsr     <a href="#Score_AddBCD">Score_AddBCD</a>            
 e049: a9 00                        lda     #$00                    
 e04b: 85 8b                        sta     PPU_SrcHi               
 e04d: 85 8a                        sta     PPU_SrcLo               
@@ -7089,7 +7092,7 @@ e090: e8                           inx
 e091: e8                           inx                             
 e092: c0 05                        cpy     #$05                    
 e094: 90 f1                        bcc     <a href="#L_e087">L_e087</a>                  
-e096: 20 1a ac                     jsr     <a href="#L_ac1a">L_ac1a</a>                  
+e096: 20 1a ac                     jsr     <a href="#Score_AddBCD">Score_AddBCD</a>            
 e099: a0 0e                        ldy     #$0e                    
 e09b: 8c 1d 07                     sty     $071d                   
 e09e: a9 02                        lda     #$02                    
@@ -7151,11 +7154,11 @@ e121: b0 f9                        bcs     <a href="#L_e11c">L_e11c</a>
 e123: 20 db 9f                     jsr     <a href="#L_9fdb">L_9fdb</a>                  
 e126: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 e129: a9 0b                        lda     #$0b                    
-e12b: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+e12b: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 e12e: a9 0c                        lda     #$0c                    
-e130: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+e130: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 e133: a9 0d                        lda     #$0d                    
-e135: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+e135: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 e138: a9 0d        <span id="L_e138">L_e138</span>          lda     #$0d                    
 e13a: 20 5b a0                     jsr     <a href="#L_a05b">L_a05b</a>                  
 e13d: b0 f9                        bcs     <a href="#L_e138">L_e138</a>                  
@@ -7813,7 +7816,7 @@ ee27: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>
 ee2a: 00 c4 01 1c ..<span id="D_ee2a">D_ee2a</span>          .byte   $00, $c4, $01, $1c, $00, $e4, $01, $0c
 ee32: 00 d4 01 2c                  .byte   $00, $d4, $01, $2c
 ee36: a9 13        <span id="L_ee36">L_ee36</span>          lda     #$13                    
-ee38: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+ee38: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 ee3b: fe 9b 06     <span id="L_ee3b">L_ee3b</span>          inc     $069b,X                 
 ee3e: bd 9b 06                     lda     $069b,X                 
 ee41: 4a                           lsr     A                       
@@ -8732,7 +8735,7 @@ f899: ad 37 04     <span id="L_f899">L_f899</span>          lda     Respawn_Coun
 f89c: c9 ff                        cmp     #$ff                    
 f89e: f0 20                        beq     <a href="#L_f8c0">L_f8c0</a>                  
 f8a0: a9 13                        lda     #$13                    
-f8a2: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+f8a2: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 f8a5: fe 9b 06     <span id="L_f8a5">L_f8a5</span>          inc     $069b,X                 
 f8a8: bd 9b 06                     lda     $069b,X                 
 f8ab: c9 04                        cmp     #$04                    
@@ -8753,7 +8756,7 @@ f8cb: a9 00                        lda     #$00
 f8cd: 85 89                        sta     PPU_AddrHi              
 f8cf: 85 88                        sta     PPU_AddrLo              
 f8d1: 85 8a                        sta     PPU_SrcLo               
-f8d3: 20 1a ac                     jsr     <a href="#L_ac1a">L_ac1a</a>                  
+f8d3: 20 1a ac                     jsr     <a href="#Score_AddBCD">Score_AddBCD</a>            
 f8d6: ce 17 07                     dec     $0717                   
 f8d9: d0 6f                        bne     <a href="#L_f94a">L_f94a</a>                  
 f8db: a9 00                        lda     #$00                    
@@ -8794,7 +8797,7 @@ f921: b0 06                        bcs     <a href="#L_f929">L_f929</a>
 f923: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 f926: 4c 09 f9                     jmp     <a href="#L_f909">L_f909</a>                  
 f929: a9 0f        <span id="L_f929">L_f929</span>          lda     #$0f                    
-f92b: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+f92b: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 f92e: bd d9 04                     lda     $04d9,X                 
 f931: 38                           sec                             
 f932: e9 7a                        sbc     #$7a                    
@@ -8812,7 +8815,7 @@ f955: ad 37 04     <span id="L_f955">L_f955</span>          lda     Respawn_Coun
 f958: c9 ff                        cmp     #$ff                    
 f95a: f0 21                        beq     <a href="#L_f97d">L_f97d</a>                  
 f95c: a9 13                        lda     #$13                    
-f95e: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+f95e: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 f961: fe 9b 06     <span id="L_f961">L_f961</span>          inc     $069b,X                 
 f964: bd 9b 06                     lda     $069b,X                 
 f967: 4a                           lsr     A                       
@@ -8847,7 +8850,7 @@ f9ab: ad 37 04     <span id="L_f9ab">L_f9ab</span>          lda     Respawn_Coun
 f9ae: c9 ff                        cmp     #$ff                    
 f9b0: f0 cb                        beq     <a href="#L_f97d">L_f97d</a>                  
 f9b2: a9 12                        lda     #$12                    
-f9b4: 20 6b a0                     jsr     <a href="#L_a06b">L_a06b</a>                  
+f9b4: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 f9b7: fe 9b 06     <span id="L_f9b7">L_f9b7</span>          inc     $069b,X                 
 f9ba: bd 9b 06                     lda     $069b,X                 
 f9bd: 4a                           lsr     A                       
@@ -8894,7 +8897,7 @@ fa1b: 85 8b                        sta     PPU_SrcHi
 fa1d: c8                           iny                             
 fa1e: b9 df fc                     lda     $fcdf,Y                 
 fa21: 85 8a                        sta     PPU_SrcLo               
-fa23: 20 1a ac                     jsr     <a href="#L_ac1a">L_ac1a</a>                  
+fa23: 20 1a ac                     jsr     <a href="#Score_AddBCD">Score_AddBCD</a>            
 fa26: a9 28                        lda     #$28                    
 fa28: 85 86                        sta     $86                     
 fa2a: a9 00                        lda     #$00                    
