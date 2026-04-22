@@ -138,6 +138,7 @@ Entity_Active = $048e  ; entity SOA attribute 0 (active flag): bit $80 = slot in
 Entity_Y     = $04a7  ; entity SOA attribute 1 (vertical position); 25 slots at +0..+24 within the table. Slot 0 is the player: UP drives toward $56 (top), DOWN toward $c1 (bottom)
 MenuCursor_Y = $04b2  ; Y position of the title-screen menu cursor — physically slot 11 of Entity_Y (the bullet slot during gameplay), repurposed on the title screen. Set to $7f / $8f / $9f for the three menu rows by the dispatch arms at $b6fc / $b702 / $b70a
 Entity_X     = $04c0  ; entity SOA attribute 2 (horizontal position); 25 slots. Slot 0 is the player: LEFT drives toward $1e (left edge), RIGHT toward $e6 (right edge). L_aa61 reads Entity_X,X / Entity_X,Y for collision checks between two arbitrary slots
+Entity_SpriteTile = $04d9  ; entity SOA attribute 3: per-entity primary sprite tile-id. Written with computed or constant tile values throughout the codebase: $80/$81 in the FrameTick-driven 2-frame animation at $b4f0, $8e/$8f around the collision check at $b4c7/$b4d1, $10 at $b5c3, $79 at $b621, $20 at $b614. Cleared by EntityClear_Slot. With 41 distinct writers (highest of any SOA attr), this is the most-touched per-entity field — consistent with 'the sprite tile that gets DMA'd into OAM each frame'
 Entity_Class = $04f2  ; entity SOA attribute 4: per-spawn class/category byte. Observed values across init paths: $00 (enemy types 3/4 at $eede/$eef0), $01 (b4bf/b626), $02 (default enemy and most types — $b5b4/$ee98/$eebb/$ef18), $03 (player bullet at $d092). Persistent across EntityClear_Slot. Functions as a small enum that downstream handlers branch on (movement style, collision behavior, etc.) — exact mapping not yet confirmed but the player-bullet vs enemy distinction at 3 vs 2 is the cleanest signal
 Entity_Direction = $050b  ; entity SOA attribute 5 (8-direction code, $0..$e in steps of 2): $00=UP, $02=UP+RIGHT, $04=RIGHT, $06=DOWN+RIGHT, $08=DOWN, $0a=DOWN+LEFT, $0c=LEFT, $0e=UP+LEFT. Set by SetEntityDirection from the dpad handler. Confirmed live: move_left puts $0c into $050b
 Entity_PosY_HiBit = $0524  ; entity SOA attribute 6: high bit of the 24-bit fixed-point Y position. Updated in the Y-position integration at $b061-b08c where the carry from `lda $0399 / adc $0524,X` propagates back via `and #$01 / sta $0524,X`. Slot 0 = player. Pairs with Entity_PosY_FracMid ($053d, attr 7) and Entity_PosY_FracLo ($0556, attr 8) and the displayed integer Entity_Y ($04a7, attr 1)
@@ -153,7 +154,9 @@ Entity_Movement15 = $0605  ; entity SOA attribute 15: paired with the velocity-s
 Entity_Movement16 = $061e  ; entity SOA attribute 16: paired with $0397 in the same $d646 / $fc53-loader pattern as Entity_Movement15. Constant 2 written to both $0397 and $061e,X at $d656. Cleared by EntityClear_Slot. Likely persistent X-velocity mid byte
 Entity_Movement17 = $0637  ; entity SOA attribute 17: paired with $0399 in $d64e (constant 0 to both). At $f1f5 it's set to `(($fc53,Y) - 1) & 1` — a single-bit flag. Cleared by EntityClear_Slot. Likely a sign/direction bit for the Y velocity
 Entity_Movement18 = $0650  ; entity SOA attribute 18: paired with $039a in $d65e (constant $d0 to both — note $d0 = -48 signed, the upward bullet velocity). Loaded from the per-type velocity table at $f1e9 with offset math relative to Entity_TypeParam22. Cleared by EntityClear_Slot. Likely persistent Y-velocity mid byte
+Entity_DirGate = $0669  ; entity SOA attribute 19: direction-derived flag. Set to 1 at $f25c when (Entity_Direction & $0f) < $08 — i.e. when the direction code is in the low half (UP, UP+RIGHT, RIGHT, DOWN+RIGHT — the right-or-neutral facings). The branch path at $f26a handles the high half (DOWN, DOWN+LEFT, LEFT, UP+LEFT — left-facing). Persistent across EntityClear_Slot. Most consistent reading: a sprite-flip / facing-mirror flag, but the consumer hasn't been pinned
 Entity_AnimTick = $0682  ; entity SOA attribute 20: per-entity animation tick, advanced by +4 each animation step at $f590-$f596 (`lda $0682,X / clc / adc #$04 / sta $0682,X`) just before the animation loop reads from ($8a),Y. Initialized to $00 by several per-type inits ($ee02, $ef58, $ef82, $efe6) and to a passed value at $ed90. Cleared together with Entity_AnimFrame ($05ec, attr 14) at $ef85/$efe9. Persistent across EntityClear_Slot — survives slot reuse, which fits a 'where in the animation cycle did we leave off' role
+Entity_FrameTick = $069b  ; entity SOA attribute 21: per-entity update-tick counter. Initialized to $ff at every entity activation ($b4ba, $b5c8, $ee76 in EnemyType_DispatchInit) so the first INC wraps to 0. Each per-entity update INCs it ($b4e0, $b5da, $d1a5, etc.) and immediately reads the new value to drive periodic state changes: e.g. $b4e6 does `lsr A / and #$0f / cmp #$02` and stores a sprite tile to Entity_SpriteTile when the cycle is 0 or 1 (2-frame stretches in a 16-step animation), and $b5e0 does `and #$03 / bne / inc Entity_TypeParam12` to bump TypeParam12 every 4 ticks. Cleared by EntityClear_Slot
 Entity_TypeParam22 = $06b4  ; entity SOA attribute 22: per-type init constant in the persistent SOA band. Observed values: type 0 -> $44 (set at $ee9d), type 1 -> $5c ($eec0), type 7 -> $48 ($ef1f), and $20 from the non-dispatch init at $b614 (player-bullet-style entity). Confirmed live: enemy_observe slot 21 took on $44 right after a wave spawned (type 0). Survives EntityClear_Slot — likely a per-spawn parameter the entity refers to throughout its life (animation timer reset, collision-box dimension, or score-value-id)
 Entity_SpawnTypeRaw = $06cd  ; entity SOA attribute 23: per-slot raw enemy-type id as written by the spawn-script reader at $da3b-$da4d (which fills four consecutive slots Y..Y+3 from scratchpad bytes $b1/$b2/$b2/$b3 — a 4-enemy formation packet). Later copied into Entity_TypeId at $dadf when the slot is activated by Entity_ActivateFromSpawnTable. Survives EntityClear_Slot resets — that's why it's in the persistent-attrs band (4, 13, 19-24)
 TitleMenu_FrameTimer = $070b  ; title-screen frame counter for the menu-cursor blink: initialized to $ff at $b6c0 just before the menu loop entry, decremented every iteration at $b744. When (timer & 3)==0 the loop falls through to the cursor-blink eor at $b74e-b75a (the 5-byte mask at TitleMenu_CursorMask). Confirmed via idle_titlescreen drift: SAW with constant -50 step over 150-frame chunks (consistent with one dec per frame, modulo wrap)
@@ -2606,7 +2609,7 @@ aa70: b9 c0 04                     lda     Entity_X,Y
 aa73: 8d 97 03                     sta     $0397                   
 aa76: b9 a7 04                     lda     Entity_Y,Y              
 aa79: 8d 9a 03                     sta     $039a                   
-aa7c: bd d9 04                     lda     $04d9,X                 
+aa7c: bd d9 04                     lda     Entity_SpriteTile,X     
 aa7f: 20 2c ab                     jsr     <a href="#L_ab2c">L_ab2c</a>                  
 aa82: a0 00                        ldy     #$00                    
 aa84: b1 8a        <span id="L_aa84">L_aa84</span>          lda     ($8a),Y                 
@@ -2615,7 +2618,7 @@ aa89: c8                           iny
 aa8a: c0 04                        cpy     #$04                    
 aa8c: 90 f6                        bcc     <a href="#L_aa84">L_aa84</a>                  
 aa8e: ac 1d 07                     ldy     $071d                   
-aa91: b9 d9 04                     lda     $04d9,Y                 
+aa91: b9 d9 04                     lda     Entity_SpriteTile,Y     
 aa94: 20 2c ab                     jsr     <a href="#L_ab2c">L_ab2c</a>                  
 aa97: a0 00                        ldy     #$00                    
 aa99: b1 8a        <span id="L_aa99">L_aa99</span>          lda     ($8a),Y                 
@@ -3440,7 +3443,7 @@ b432: 29 21        <span id="L_b432">L_b432</span>          and     #$21
 b434: d0 1a                        bne     <a href="#L_b450">L_b450</a>                  
 b436: c0 18                        cpy     #$18                    
 b438: d0 07                        bne     <a href="#L_b441">L_b441</a>                  
-b43a: b9 d9 04                     lda     $04d9,Y                 
+b43a: b9 d9 04                     lda     Entity_SpriteTile,Y     
 b43d: c9 79                        cmp     #$79                    
 b43f: f0 0f                        beq     <a href="#L_b450">L_b450</a>                  
 b441: b9 d3 05     <span id="L_b441">L_b441</span>          lda     Entity_TypeId,Y         
@@ -3495,35 +3498,35 @@ b4b0: bd 8e 04     <span id="L_b4b0">L_b4b0</span>          lda     Entity_Activ
 b4b3: 09 20                        ora     #$20                    
 b4b5: 9d 8e 04                     sta     Entity_Active,X         
 b4b8: a9 ff                        lda     #$ff                    
-b4ba: 9d 9b 06                     sta     $069b,X                 
+b4ba: 9d 9b 06                     sta     Entity_FrameTick,X      
 b4bd: a9 01                        lda     #$01                    
 b4bf: 9d f2 04                     sta     Entity_Class,X          
 b4c2: 4c 55 b4                     jmp     <a href="#L_b455">L_b455</a>                  
 b4c5: a9 8e        <span id="D_b4c5">D_b4c5</span>          .byte   $a9, $8e
-b4c7: 99 d9 04     <span id="L_b4c7">L_b4c7</span>          sta     $04d9,Y                 
+b4c7: 99 d9 04     <span id="L_b4c7">L_b4c7</span>          sta     Entity_SpriteTile,Y     
 b4ca: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
 b4cd: b0 8a                        bcs     <a href="#L_b459">L_b459</a>                  
 b4cf: a9 8f                        lda     #$8f                    
-b4d1: 99 d9 04                     sta     $04d9,Y                 
+b4d1: 99 d9 04                     sta     Entity_SpriteTile,Y     
 b4d4: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
 b4d7: b0 80                        bcs     <a href="#L_b459">L_b459</a>                  
 b4d9: 4c 55 b4                     jmp     <a href="#L_b455">L_b455</a>                  
 b4dc: 22 27 2c 31  <span id="D_b4dc">D_b4dc</span>          .byte   $22, $27, $2c, $31
-b4e0: fe 9b 06     <span id="L_b4e0">L_b4e0</span>          inc     $069b,X                 
-b4e3: bd 9b 06                     lda     $069b,X                 
+b4e0: fe 9b 06     <span id="L_b4e0">L_b4e0</span>          inc     Entity_FrameTick,X      
+b4e3: bd 9b 06                     lda     Entity_FrameTick,X      
 b4e6: 4a                           lsr     A                       
 b4e7: 29 0f                        and     #$0f                    
 b4e9: c9 02                        cmp     #$02                    
 b4eb: b0 09                        bcs     <a href="#L_b4f6">L_b4f6</a>                  
 b4ed: 18                           clc                             
 b4ee: 69 80                        adc     #$80                    
-b4f0: 9d d9 04                     sta     $04d9,X                 
+b4f0: 9d d9 04                     sta     Entity_SpriteTile,X     
 b4f3: 4c e8 b3                     jmp     <a href="#L_b3e8">L_b3e8</a>                  
 b4f6: 4c 02 b4     <span id="D_b4f6">D_b4f6</span>          .byte   $4c, $02, $b4
 b4f9: a9 88        <span id="L_b4f9">L_b4f9</span>          lda     #$88                    
 b4fb: 9d 8e 04                     sta     Entity_Active,X         
 b4fe: a9 01                        lda     #$01                    
-b500: 9d d9 04                     sta     $04d9,X                 
+b500: 9d d9 04                     sta     Entity_SpriteTile,X     
 b503: 20 75 c2     <span id="L_b503">L_b503</span>          jsr     <a href="#L_c275">L_c275</a>                  
 b506: 4c 03 b5                     jmp     <a href="#L_b503">L_b503</a>                  
 b509: a2 03        <span id="L_b509">L_b509</span>          ldx     #$03                    
@@ -3599,17 +3602,17 @@ b5b9: 9d ba 05                     sta     Entity_TypeParam12,X
 b5bc: a9 00                        lda     #$00                    
 b5be: 9d 0b 05                     sta     Entity_Direction,X      
 b5c1: a9 10                        lda     #$10                    
-b5c3: 9d d9 04                     sta     $04d9,X                 
+b5c3: 9d d9 04                     sta     Entity_SpriteTile,X     
 b5c6: a9 ff                        lda     #$ff                    
-b5c8: 9d 9b 06                     sta     $069b,X                 
+b5c8: 9d 9b 06                     sta     Entity_FrameTick,X      
 b5cb: 20 75 c2     <span id="L_b5cb">L_b5cb</span>          jsr     <a href="#L_c275">L_c275</a>                  
 b5ce: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
 b5d1: f0 f8                        beq     <a href="#L_b5cb">L_b5cb</a>                  
 b5d3: bd 8e 04                     lda     Entity_Active,X         
 b5d6: 29 01                        and     #$01                    
 b5d8: d0 38                        bne     <a href="#L_b612">L_b612</a>                  
-b5da: fe 9b 06                     inc     $069b,X                 
-b5dd: bd 9b 06                     lda     $069b,X                 
+b5da: fe 9b 06                     inc     Entity_FrameTick,X      
+b5dd: bd 9b 06                     lda     Entity_FrameTick,X      
 b5e0: 29 03                        and     #$03                    
 b5e2: d0 03                        bne     <a href="#L_b5e7">L_b5e7</a>                  
 b5e4: fe ba 05                     inc     Entity_TypeParam12,X    
@@ -3635,7 +3638,7 @@ b617: a9 02                        lda     #$02
 b619: 9d d3 05                     sta     Entity_TypeId,X         
 b61c: 20 9c f1                     jsr     <a href="#L_f19c">L_f19c</a>                  
 b61f: a9 79                        lda     #$79                    
-b621: 9d d9 04                     sta     $04d9,X                 
+b621: 9d d9 04                     sta     Entity_SpriteTile,X     
 b624: a9 01                        lda     #$01                    
 b626: 9d f2 04                     sta     Entity_Class,X          
 b629: a9 04                        lda     #$04                    
@@ -3671,7 +3674,7 @@ b6ae: 99 c0 04                     sta     Entity_X,Y
 b6b1: a9 7f                        lda     #$7f                    
 b6b3: 99 a7 04                     sta     Entity_Y,Y              
 b6b6: a9 20                        lda     #$20                    
-b6b8: 99 d9 04                     sta     $04d9,Y                 
+b6b8: 99 d9 04                     sta     Entity_SpriteTile,Y     
 b6bb: a9 1a                        lda     #$1a                    
 b6bd: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
 b6c0: a9 ff                        lda     #$ff                    
@@ -4953,7 +4956,7 @@ c32b: aa                           tax
 c32c: 60                           rts                             
 c32d: a9 00        <span id="EntityClear_Slot">EntityClear_Slot</span>lda     #$00                    
 c32f: 9d 8e 04                     sta     Entity_Active,X         
-c332: 9d d9 04                     sta     $04d9,X                 
+c332: 9d d9 04                     sta     Entity_SpriteTile,X     
 c335: 9d 0b 05                     sta     Entity_Direction,X      
 c338: 9d ba 05                     sta     Entity_TypeParam12,X    
 c33b: 9d c0 04                     sta     Entity_X,X              
@@ -4969,7 +4972,7 @@ c356: 9d 05 06                     sta     Entity_Movement15,X
 c359: 9d 1e 06                     sta     Entity_Movement16,X     
 c35c: 9d 37 06                     sta     Entity_Movement17,X     
 c35f: 9d 50 06                     sta     Entity_Movement18,X     
-c362: 9d 9b 06                     sta     $069b,X                 
+c362: 9d 9b 06                     sta     Entity_FrameTick,X      
 c365: 60                           rts                             
 c366: 18           <span id="L_c366">L_c366</span>          clc                             
 c367: 01 01                        ora     ($01,X)                 
@@ -4999,7 +5002,7 @@ c3d1: 10 20                        bpl     <a href="#L_c3f3">L_c3f3</a>
 c3d3: bd a7 04                     lda     Entity_Y,X              
 c3d6: 99 af 03                     sta     Player_OAM_Y,Y          
 c3d9: c8                           iny                             
-c3da: bd d9 04                     lda     $04d9,X                 
+c3da: bd d9 04                     lda     Entity_SpriteTile,X     
 c3dd: 99 af 03                     sta     Player_OAM_Y,Y          
 c3e0: c8                           iny                             
 c3e1: bd f2 04                     lda     Entity_Class,X          
@@ -5590,35 +5593,35 @@ d0c7: c9 28                        cmp     #$28
 d0c9: 90 f4                        bcc     <a href="#L_d0bf">L_d0bf</a>                  
 d0cb: a9 0a                        lda     #$0a                    
 d0cd: 20 94 a0                     jsr     <a href="#L_a094">L_a094</a>                  
-d0d0: ee d9 04                     inc     $04d9                   
+d0d0: ee d9 04                     inc     Entity_SpriteTile       
 d0d3: a9 00                        lda     #$00                    
-d0d5: 8d 9b 06                     sta     $069b                   
+d0d5: 8d 9b 06                     sta     Entity_FrameTick        
 d0d8: a9 15                        lda     #$15                    
 d0da: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d0dd: 20 9a d1     <span id="L_d0dd">L_d0dd</span>          jsr     <a href="#L_d19a">L_d19a</a>                  
 d0e0: c9 08                        cmp     #$08                    
 d0e2: 90 f9                        bcc     <a href="#L_d0dd">L_d0dd</a>                  
-d0e4: ee d9 04                     inc     $04d9                   
+d0e4: ee d9 04                     inc     Entity_SpriteTile       
 d0e7: a9 00                        lda     #$00                    
-d0e9: 8d 9b 06                     sta     $069b                   
+d0e9: 8d 9b 06                     sta     Entity_FrameTick        
 d0ec: 20 9a d1     <span id="L_d0ec">L_d0ec</span>          jsr     <a href="#L_d19a">L_d19a</a>                  
 d0ef: c9 08                        cmp     #$08                    
 d0f1: 90 f9                        bcc     <a href="#L_d0ec">L_d0ec</a>                  
-d0f3: ee d9 04                     inc     $04d9                   
+d0f3: ee d9 04                     inc     Entity_SpriteTile       
 d0f6: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 d0f9: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 d0fc: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
-d0ff: ee d9 04                     inc     $04d9                   
+d0ff: ee d9 04                     inc     Entity_SpriteTile       
 d102: a9 08                        lda     #$08                    
 d104: 9d 0b 05                     sta     Entity_Direction,X      
 d107: a9 00                        lda     #$00                    
-d109: 8d 9b 06                     sta     $069b                   
+d109: 8d 9b 06                     sta     Entity_FrameTick        
 d10c: 20 9a d1     <span id="L_d10c">L_d10c</span>          jsr     <a href="#L_d19a">L_d19a</a>                  
 d10f: c9 0a                        cmp     #$0a                    
 d111: 90 f9                        bcc     <a href="#L_d10c">L_d10c</a>                  
-d113: ee d9 04                     inc     $04d9                   
+d113: ee d9 04                     inc     Entity_SpriteTile       
 d116: a9 00                        lda     #$00                    
-d118: 8d 9b 06                     sta     $069b                   
+d118: 8d 9b 06                     sta     Entity_FrameTick        
 d11b: 20 9a d1     <span id="L_d11b">L_d11b</span>          jsr     <a href="#L_d19a">L_d19a</a>                  
 d11e: c9 14                        cmp     #$14                    
 d120: 90 f9                        bcc     <a href="#L_d11b">L_d11b</a>                  
@@ -5626,21 +5629,21 @@ d122: 20 9a d1     <span id="L_d122">L_d122</span>          jsr     <a href="#L_
 d125: bd a7 04                     lda     Entity_Y,X              
 d128: c9 c0                        cmp     #$c0                    
 d12a: 90 f6                        bcc     <a href="#L_d122">L_d122</a>                  
-d12c: ee d9 04                     inc     $04d9                   
+d12c: ee d9 04                     inc     Entity_SpriteTile       
 d12f: a9 00                        lda     #$00                    
-d131: 8d 9b 06                     sta     $069b                   
+d131: 8d 9b 06                     sta     Entity_FrameTick        
 d134: 20 9a d1     <span id="L_d134">L_d134</span>          jsr     <a href="#L_d19a">L_d19a</a>                  
 d137: c9 08                        cmp     #$08                    
 d139: 90 f9                        bcc     <a href="#L_d134">L_d134</a>                  
-d13b: ee d9 04                     inc     $04d9                   
+d13b: ee d9 04                     inc     Entity_SpriteTile       
 d13e: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 d141: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 d144: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
-d147: ee d9 04                     inc     $04d9                   
+d147: ee d9 04                     inc     Entity_SpriteTile       
 d14a: a9 00                        lda     #$00                    
 d14c: 8d 0b 05                     sta     Entity_Direction        
 d14f: a9 00                        lda     #$00                    
-d151: 8d 9b 06                     sta     $069b                   
+d151: 8d 9b 06                     sta     Entity_FrameTick        
 d154: 20 9a d1     <span id="L_d154">L_d154</span>          jsr     <a href="#L_d19a">L_d19a</a>                  
 d157: c9 0a                        cmp     #$0a                    
 d159: 90 f9                        bcc     <a href="#L_d154">L_d154</a>                  
@@ -5659,7 +5662,7 @@ d177: a9 00                        lda     #$00
 d179: 8d a1 05                     sta     Entity_PosX_FracLo      
 d17c: 8d 56 05                     sta     Entity_PosY_FracLo      
 d17f: a9 00                        lda     #$00                    
-d181: 8d d9 04                     sta     $04d9                   
+d181: 8d d9 04                     sta     Entity_SpriteTile       
 d184: a9 14                        lda     #$14                    
 d186: 8d ba 05                     sta     Entity_TypeParam12      
 d189: 20 d7 b1                     jsr     <a href="#L_b1d7">L_b1d7</a>                  
@@ -5672,8 +5675,8 @@ d19a: a9 08        <span id="L_d19a">L_d19a</span>          lda     #$08
 d19c: 20 48 b0                     jsr     <a href="#L_b048">L_b048</a>                  
 d19f: 20 d7 b1                     jsr     <a href="#L_b1d7">L_b1d7</a>                  
 d1a2: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
-d1a5: ee 9b 06                     inc     $069b                   
-d1a8: ad 9b 06                     lda     $069b                   
+d1a5: ee 9b 06                     inc     Entity_FrameTick        
+d1a8: ad 9b 06                     lda     Entity_FrameTick        
 d1ab: 60                           rts                             
 d1ac: a2 00        <span id="L_d1ac">L_d1ac</span>          ldx     #$00                    
 d1ae: bd 8e 04     <span id="L_d1ae">L_d1ae</span>          lda     Entity_Active,X         
@@ -5786,44 +5789,44 @@ d339: 04 90 f6 ee ..                .byte   $04, $90, $f6, $ee, $d9, $04, $a9, $
 d341: 8d 9b 06                     .byte   $8d, $9b, $06
 d344: 20 de d2 20 ..<span id="D_d344">D_d344</span>          .byte   $20, $de, $d2, $20, $fb, $d2, $c9, $04
 d34c: 90 f6        <span id="L_d34c">L_d34c</span>          bcc     <a href="#L_d344">L_d344</a>                  
-d34e: ee d9 04                     inc     $04d9                   
+d34e: ee d9 04                     inc     Entity_SpriteTile       
 d351: a9 00                        lda     #$00                    
-d353: 8d 9b 06                     sta     $069b                   
+d353: 8d 9b 06                     sta     Entity_FrameTick        
 d356: 20 de d2     <span id="L_d356">L_d356</span>          jsr     <a href="#L_d2de">L_d2de</a>                  
 d359: 20 fb d2                     jsr     <a href="#L_d2fb">L_d2fb</a>                  
 d35c: c9 08                        cmp     #$08                    
 d35e: 90 f6                        bcc     <a href="#L_d356">L_d356</a>                  
-d360: ee d9 04                     inc     $04d9                   
+d360: ee d9 04                     inc     Entity_SpriteTile       
 d363: a9 00                        lda     #$00                    
-d365: 8d 9b 06                     sta     $069b                   
+d365: 8d 9b 06                     sta     Entity_FrameTick        
 d368: 20 de d2     <span id="L_d368">L_d368</span>          jsr     <a href="#L_d2de">L_d2de</a>                  
 d36b: 20 fb d2                     jsr     <a href="#L_d2fb">L_d2fb</a>                  
 d36e: c9 08                        cmp     #$08                    
 d370: 90 f6                        bcc     <a href="#L_d368">L_d368</a>                  
-d372: ee d9 04                     inc     $04d9                   
+d372: ee d9 04                     inc     Entity_SpriteTile       
 d375: a9 00                        lda     #$00                    
-d377: 8d 9b 06                     sta     $069b                   
+d377: 8d 9b 06                     sta     Entity_FrameTick        
 d37a: 20 de d2     <span id="L_d37a">L_d37a</span>          jsr     <a href="#L_d2de">L_d2de</a>                  
 d37d: 20 fb d2                     jsr     <a href="#L_d2fb">L_d2fb</a>                  
 d380: c9 04                        cmp     #$04                    
 d382: 90 f6                        bcc     <a href="#L_d37a">L_d37a</a>                  
-d384: ee d9 04                     inc     $04d9                   
+d384: ee d9 04                     inc     Entity_SpriteTile       
 d387: a9 00                        lda     #$00                    
-d389: 8d 9b 06                     sta     $069b                   
+d389: 8d 9b 06                     sta     Entity_FrameTick        
 d38c: 20 de d2     <span id="L_d38c">L_d38c</span>          jsr     <a href="#L_d2de">L_d2de</a>                  
 d38f: 20 f3 d2                     jsr     <a href="#L_d2f3">L_d2f3</a>                  
 d392: c9 04                        cmp     #$04                    
 d394: 90 f6                        bcc     <a href="#L_d38c">L_d38c</a>                  
-d396: ee d9 04                     inc     $04d9                   
+d396: ee d9 04                     inc     Entity_SpriteTile       
 d399: a9 00                        lda     #$00                    
-d39b: 8d 9b 06                     sta     $069b                   
+d39b: 8d 9b 06                     sta     Entity_FrameTick        
 d39e: 20 aa d2     <span id="L_d39e">L_d39e</span>          jsr     <a href="#Fire_Handler">Fire_Handler</a>            
 d3a1: 20 de d2                     jsr     <a href="#L_d2de">L_d2de</a>                  
 d3a4: 20 f3 d2                     jsr     <a href="#L_d2f3">L_d2f3</a>                  
 d3a7: c9 08                        cmp     #$08                    
 d3a9: 90 f3                        bcc     <a href="#L_d39e">L_d39e</a>                  
 d3ab: a9 00                        lda     #$00                    
-d3ad: 8d d9 04                     sta     $04d9                   
+d3ad: 8d d9 04                     sta     Entity_SpriteTile       
 d3b0: ad 8e 04                     lda     Entity_Active           
 d3b3: 29 ef                        and     #$ef                    
 d3b5: 8d 8e 04                     sta     Entity_Active           
@@ -5856,14 +5859,14 @@ d3f5: ad 8e 04     <span id="L_d3f5">L_d3f5</span>          lda     Entity_Activ
 d3f8: 29 02                        and     #$02                    
 d3fa: d0 08                        bne     <a href="#L_d404">L_d404</a>                  
 d3fc: a9 08                        lda     #$08                    
-d3fe: 99 d9 04                     sta     $04d9,Y                 
+d3fe: 99 d9 04                     sta     Entity_SpriteTile,Y     
 d401: 4c 55 d4                     jmp     <a href="#L_d455">L_d455</a>                  
 d404: a9 09 99 d9 ..<span id="D_d404">D_d404</span>          .byte   $a9, $09, $99, $d9, $04, $4c, $55, $d4
 d40c: ad 8e 04     <span id="L_d40c">L_d40c</span>          lda     Entity_Active           
 d40f: 29 02                        and     #$02                    
 d411: d0 08                        bne     <a href="#L_d41b">L_d41b</a>                  
 d413: a9 0c                        lda     #$0c                    
-d415: 99 d9 04                     sta     $04d9,Y                 
+d415: 99 d9 04                     sta     Entity_SpriteTile,Y     
 d418: 4c 55 d4                     jmp     <a href="#L_d455">L_d455</a>                  
 d41b: a9 0f 99 d9 ..<span id="D_d41b">D_d41b</span>          .byte   $a9, $0f, $99, $d9, $04, $4c, $55, $d4
 d423: ad 90 04     <span id="L_d423">L_d423</span>          lda     $0490                   
@@ -5873,14 +5876,14 @@ d42a: ad 8e 04                     lda     Entity_Active
 d42d: 29 02                        and     #$02                    
 d42f: d0 08                        bne     <a href="#L_d439">L_d439</a>                  
 d431: a9 0b                        lda     #$0b                    
-d433: 99 d9 04                     sta     $04d9,Y                 
+d433: 99 d9 04                     sta     Entity_SpriteTile,Y     
 d436: 4c 55 d4                     jmp     <a href="#L_d455">L_d455</a>                  
 d439: a9 0e 99 d9 ..<span id="D_d439">D_d439</span>          .byte   $a9, $0e, $99, $d9, $04, $4c, $55, $d4
 d441: ad 8e 04     <span id="L_d441">L_d441</span>          lda     Entity_Active           
 d444: 29 02                        and     #$02                    
 d446: d0 08                        bne     <a href="#L_d450">L_d450</a>                  
 d448: a9 0a                        lda     #$0a                    
-d44a: 99 d9 04                     sta     $04d9,Y                 
+d44a: 99 d9 04                     sta     Entity_SpriteTile,Y     
 d44d: 4c 55 d4                     jmp     <a href="#L_d455">L_d455</a>                  
 d450: a9 0d 99 d9 ..<span id="D_d450">D_d450</span>          .byte   $a9, $0d, $99, $d9, $04
 d455: a9 01        <span id="L_d455">L_d455</span>          lda     #$01                    
@@ -5976,13 +5979,13 @@ d5a5: bd 8e 04     <span id="L_d5a5">L_d5a5</span>          lda     Entity_Activ
 d5a8: 09 20                        ora     #$20                    
 d5aa: 9d 8e 04                     sta     Entity_Active,X         
 d5ad: a9 ff                        lda     #$ff                    
-d5af: 9d 9b 06                     sta     $069b,X                 
+d5af: 9d 9b 06                     sta     Entity_FrameTick,X      
 d5b2: a9 01                        lda     #$01                    
 d5b4: 9d f2 04                     sta     Entity_Class,X          
 d5b7: a9 12                        lda     #$12                    
 d5b9: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
-d5bc: fe 9b 06                     inc     $069b,X                 
-d5bf: bd 9b 06                     lda     $069b,X                 
+d5bc: fe 9b 06                     inc     Entity_FrameTick,X      
+d5bf: bd 9b 06                     lda     Entity_FrameTick,X      
 d5c2: e0 00                        cpx     #$00                    
 d5c4: f0 0c                        beq     <a href="#L_d5d2">L_d5d2</a>                  
 d5c6: 29 0f                        and     #$0f                    
@@ -5997,12 +6000,12 @@ d5d5: c9 08                        cmp     #$08
 d5d7: f0 09                        beq     <a href="#L_d5e2">L_d5e2</a>                  
 d5d9: 18                           clc                             
 d5da: 69 90                        adc     #$90                    
-d5dc: 9d d9 04     <span id="L_d5dc">L_d5dc</span>          sta     $04d9,X                 
+d5dc: 9d d9 04     <span id="L_d5dc">L_d5dc</span>          sta     Entity_SpriteTile,X     
 d5df: 4c b5 d1                     jmp     <a href="#L_d1b5">L_d1b5</a>                  
 d5e2: e0 00        <span id="L_d5e2">L_d5e2</span>          cpx     #$00                    
 d5e4: d0 29                        bne     <a href="#L_d60f">L_d60f</a>                  
 d5e6: a9 8f                        lda     #$8f                    
-d5e8: 8d d9 04                     sta     $04d9                   
+d5e8: 8d d9 04                     sta     Entity_SpriteTile       
 d5eb: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 d5ee: a9 5a                        lda     #$5a                    
 d5f0: 85 86                        sta     $86                     
@@ -6029,12 +6032,12 @@ d623: 9d 0b 05                     sta     Entity_Direction,X
 d626: a9 1e                        lda     #$1e                    
 d628: 9d ba 05                     sta     Entity_TypeParam12,X    
 d62b: a9 14                        lda     #$14                    
-d62d: 9d d9 04                     sta     $04d9,X                 
+d62d: 9d d9 04                     sta     Entity_SpriteTile,X     
 d630: 20 89 d5                     jsr     <a href="#ApplyMovement">ApplyMovement</a>           
 d633: 4c b5 d1                     jmp     <a href="#L_d1b5">L_d1b5</a>                  
 d636: a9 8e 9d d9 ..<span id="D_d636">D_d636</span>          .byte   $a9, $8e, $9d, $d9, $04, $4c, $33, $d6
 d63e: a9 a0        <span id="L_d63e">L_d63e</span>          lda     #$a0                    
-d640: 9d d9 04                     sta     $04d9,X                 
+d640: 9d d9 04                     sta     Entity_SpriteTile,X     
 d643: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 d646: a9 01        <span id="L_d646">L_d646</span>          lda     #$01                    
 d648: 8d 96 03                     sta     $0396                   
@@ -6067,7 +6070,7 @@ d690: 09 40                        ora     #$40
 d692: 8d 8e 04                     sta     Entity_Active           
 d695: 4c b5 d0                     jmp     <a href="#L_d0b5">L_d0b5</a>                  
 d698: a9 ff        <span id="L_d698">L_d698</span>          lda     #$ff                    
-d69a: 9d 9b 06                     sta     $069b,X                 
+d69a: 9d 9b 06                     sta     Entity_FrameTick,X      
 d69d: 20 7b b3                     jsr     <a href="#L_b37b">L_b37b</a>                  
 d6a0: bd 8e 04                     lda     Entity_Active,X         
 d6a3: 29 80                        and     #$80                    
@@ -6093,12 +6096,12 @@ d6d6: 9d 0b 05                     sta     Entity_Direction,X
 d6d9: 20 89 d5                     jsr     <a href="#ApplyMovement">ApplyMovement</a>           
 d6dc: 20 4e d7                     jsr     <a href="#L_d74e">L_d74e</a>                  
 d6df: b0 11                        bcs     <a href="#L_d6f2">L_d6f2</a>                  
-d6e1: fe 9b 06                     inc     $069b,X                 
-d6e4: bd 9b 06                     lda     $069b,X                 
+d6e1: fe 9b 06                     inc     Entity_FrameTick,X      
+d6e4: bd 9b 06                     lda     Entity_FrameTick,X      
 d6e7: 29 07                        and     #$07                    
 d6e9: 18                           clc                             
 d6ea: 69 10                        adc     #$10                    
-d6ec: 9d d9 04                     sta     $04d9,X                 
+d6ec: 9d d9 04                     sta     Entity_SpriteTile,X     
 d6ef: 4c b5 d1                     jmp     <a href="#L_d1b5">L_d1b5</a>                  
 d6f2: bd 8e 04     <span id="L_d6f2">L_d6f2</span>          lda     Entity_Active,X         
 d6f5: 29 fb                        and     #$fb                    
@@ -6108,7 +6111,7 @@ d6fd: 9d 0b 05                     sta     Entity_Direction,X
 d700: ad ba 05                     lda     Entity_TypeParam12      
 d703: 9d ba 05                     sta     Entity_TypeParam12,X    
 d706: a9 01                        lda     #$01                    
-d708: 9d d9 04                     sta     $04d9,X                 
+d708: 9d d9 04                     sta     Entity_SpriteTile,X     
 d70b: 4c fc d1                     jmp     <a href="#L_d1fc">L_d1fc</a>                  
 d70e: ad 88 05     <span id="L_d70e">L_d70e</span>          lda     Entity_PosX_FracMid     
 d711: 38                           sec                             
@@ -6272,7 +6275,7 @@ d890: a9 aa                        lda     #$aa
 d892: 8d 1e 07                     sta     $071e                   
 d895: ac 1d 07     <span id="L_d895">L_d895</span>          ldy     $071d                   
 d898: ad 1e 07                     lda     $071e                   
-d89b: 99 d9 04                     sta     $04d9,Y                 
+d89b: 99 d9 04                     sta     Entity_SpriteTile,Y     
 d89e: 98                           tya                             
 d89f: 38                           sec                             
 d8a0: e9 0d                        sbc     #$0d                    
@@ -6918,7 +6921,7 @@ deba: f0 08                        beq     <a href="#L_dec4">L_dec4</a>
 debc: a9 00                        lda     #$00                    
 debe: 8d 37 04                     sta     Respawn_Count           
 dec1: 4c e0 e1                     jmp     <a href="#L_e1e0">L_e1e0</a>                  
-dec4: ad d9 04     <span id="L_dec4">L_dec4</span>          lda     $04d9                   
+dec4: ad d9 04     <span id="L_dec4">L_dec4</span>          lda     Entity_SpriteTile       
 dec7: c9 a0                        cmp     #$a0                    
 dec9: d0 e9                        bne     <a href="#L_deb4">L_deb4</a>                  
 decb: 20 ae a8                     jsr     <a href="#L_a8ae">L_a8ae</a>                  
@@ -7125,7 +7128,7 @@ e09e: a9 02                        lda     #$02
 e0a0: 8d 1e 07                     sta     $071e                   
 e0a3: ac 1d 07     <span id="L_e0a3">L_e0a3</span>          ldy     $071d                   
 e0a6: ad 1e 07                     lda     $071e                   
-e0a9: 99 d9 04                     sta     $04d9,Y                 
+e0a9: 99 d9 04                     sta     Entity_SpriteTile,Y     
 e0ac: 98                           tya                             
 e0ad: 38                           sec                             
 e0ae: e9 0d                        sbc     #$0d                    
@@ -7719,8 +7722,8 @@ eccc: a9 88                        lda     #$88
 ecce: 9d a7 04                     sta     Entity_Y,X              
 ecd1: ad 86 03                     lda     Active_Player_Index     
 ecd4: f0 06                        beq     <a href="#L_ecdc">L_ecdc</a>                  
-ecd6: fe d9 04                     inc     $04d9,X                 
-ecd9: fe d9 04                     inc     $04d9,X                 
+ecd6: fe d9 04                     inc     Entity_SpriteTile,X     
+ecd9: fe d9 04                     inc     Entity_SpriteTile,X     
 ecdc: 4c 57 ed     <span id="L_ecdc">L_ecdc</span>          jmp     <a href="#L_ed57">L_ed57</a>                  
 ecdf: a9 58        <span id="L_ecdf">L_ecdf</span>          lda     #$58                    
 ece1: 9d c0 04                     sta     Entity_X,X              
@@ -7797,13 +7800,13 @@ edb9: 4c 05 ee                     jmp     <a href="#L_ee05">L_ee05</a>
 edbc: a9 a9        <span id="L_edbc">L_edbc</span>          lda     #$a9                    
 edbe: 99 8e 04                     sta     Entity_Active,Y         
 edc1: a9 80                        lda     #$80                    
-edc3: 99 d9 04                     sta     $04d9,Y                 
+edc3: 99 d9 04                     sta     Entity_SpriteTile,Y     
 edc6: a9 01                        lda     #$01                    
 edc8: 99 f2 04                     sta     Entity_Class,Y          
 edcb: a9 02                        lda     #$02                    
 edcd: 99 ba 05                     sta     Entity_TypeParam12,Y    
 edd0: a9 ff                        lda     #$ff                    
-edd2: 99 9b 06                     sta     $069b,Y                 
+edd2: 99 9b 06                     sta     Entity_FrameTick,Y      
 edd5: a5 b0                        lda     $b0                     
 edd7: 99 6f 05                     sta     Entity_PosX_HiBit,Y     
 edda: a5 b1                        lda     $b1                     
@@ -7843,14 +7846,14 @@ ee2a: 00 c4 01 1c ..<span id="D_ee2a">D_ee2a</span>          .byte   $00, $c4, $
 ee32: 00 d4 01 2c                  .byte   $00, $d4, $01, $2c
 ee36: a9 13        <span id="L_ee36">L_ee36</span>          lda     #$13                    
 ee38: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
-ee3b: fe 9b 06     <span id="L_ee3b">L_ee3b</span>          inc     $069b,X                 
-ee3e: bd 9b 06                     lda     $069b,X                 
+ee3b: fe 9b 06     <span id="L_ee3b">L_ee3b</span>          inc     Entity_FrameTick,X      
+ee3e: bd 9b 06                     lda     Entity_FrameTick,X      
 ee41: 4a                           lsr     A                       
 ee42: c9 04                        cmp     #$04                    
 ee44: b0 16                        bcs     <a href="#L_ee5c">L_ee5c</a>                  
 ee46: 18                           clc                             
 ee47: 69 80                        adc     #$80                    
-ee49: 9d d9 04                     sta     $04d9,X                 
+ee49: 9d d9 04                     sta     Entity_SpriteTile,X     
 ee4c: a9 08                        lda     #$08                    
 ee4e: 9d 0b 05                     sta     Entity_Direction,X      
 ee51: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
@@ -7867,7 +7870,7 @@ ee6c: ee 3e 04                     inc     Spawn_Tally_Hi
 ee6f: a9 88        <span id="L_ee6f">L_ee6f</span>          lda     #$88                    
 ee71: 9d 8e 04     <span id="EnemyType_DispatchInit">EnemyType_DispatchInit</span>sta     Entity_Active,X         
 ee74: a9 ff                        lda     #$ff                    
-ee76: 9d 9b 06                     sta     $069b,X                 
+ee76: 9d 9b 06                     sta     Entity_FrameTick,X      
 ee79: bd d3 05                     lda     Entity_TypeId,X         
 ee7c: 0a                           asl     A                       
 ee7d: a8                           tay                             
@@ -8023,7 +8026,7 @@ f073: c8                           iny
 f074: b9 2e f1                     lda     $f12e,Y                 
 f077: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
 f07a: a9 14                        lda     #$14                    
-f07c: 9d d9 04                     sta     $04d9,X                 
+f07c: 9d d9 04                     sta     Entity_SpriteTile,X     
 f07f: 20 bc b0                     jsr     <a href="#L_b0bc">L_b0bc</a>                  
 f082: a0 00                        ldy     #$00                    
 f084: 20 e5 b0                     jsr     <a href="#L_b0e5">L_b0e5</a>                  
@@ -8048,18 +8051,18 @@ f0ee: f0                           .byte   $f0
 f0ef: de 4c 3c     <span id="L_f0ef">L_f0ef</span>          dec     $3c4c,X                 
 f0f2: f8                           sed                             
 f0f3: a9 ff                        lda     #$ff                    
-f0f5: 9d 9b 06                     sta     $069b,X                 
+f0f5: 9d 9b 06                     sta     Entity_FrameTick,X      
 f0f8: a9 24                        lda     #$24                    
 f0fa: 9d ec 05                     sta     Entity_AnimFrame,X      
-f0fd: fe 9b 06     <span id="L_f0fd">L_f0fd</span>          inc     $069b,X                 
-f100: bd 9b 06                     lda     $069b,X                 
+f0fd: fe 9b 06     <span id="L_f0fd">L_f0fd</span>          inc     Entity_FrameTick,X      
+f100: bd 9b 06                     lda     Entity_FrameTick,X      
 f103: 4a                           lsr     A                       
 f104: 29 07                        and     #$07                    
 f106: c9 04                        cmp     #$04                    
 f108: f0 12                        beq     <a href="#L_f11c">L_f11c</a>                  
 f10a: 18                           clc                             
 f10b: 7d ec 05                     adc     Entity_AnimFrame,X      
-f10e: 9d d9 04                     sta     $04d9,X                 
+f10e: 9d d9 04                     sta     Entity_SpriteTile,X     
 f111: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 f114: 20 cf b3                     jsr     <a href="#L_b3cf">L_b3cf</a>                  
 f117: f0 e4                        beq     <a href="#L_f0fd">L_f0fd</a>                  
@@ -8176,7 +8179,7 @@ f254: 29 0f                        and     #$0f
 f256: c9 08                        cmp     #$08                    
 f258: b0 10                        bcs     <a href="#L_f26a">L_f26a</a>                  
 f25a: a9 01                        lda     #$01                    
-f25c: 9d 69 06                     sta     $0669,X                 
+f25c: 9d 69 06                     sta     Entity_DirGate,X        
 f25f: bd 8e 04                     lda     Entity_Active,X         
 f262: 29 fb                        and     #$fb                    
 f264: 9d 8e 04                     sta     Entity_Active,X         
@@ -8202,7 +8205,7 @@ f29a: 8d 99 03                     sta     $0399
 f29d: c8                           iny                             
 f29e: b9 53 fc                     lda     $fc53,Y                 
 f2a1: 8d 9a 03                     sta     $039a                   
-f2a4: bd 69 06                     lda     $0669,X                 
+f2a4: bd 69 06                     lda     Entity_DirGate,X        
 f2a7: 85 86                        sta     $86                     
 f2a9: bd b4 06                     lda     Entity_TypeParam22,X    
 f2ac: 85 85                        sta     $85                     
@@ -8246,14 +8249,14 @@ f30f: 60                           rts
 f310: bd 8e 04     <span id="L_f310">L_f310</span>          lda     Entity_Active,X         
 f313: 29 04                        and     #$04                    
 f315: d0 0f                        bne     <a href="#L_f326">L_f326</a>                  
-f317: fe 69 06                     inc     $0669,X                 
-f31a: bd 69 06                     lda     $0669,X                 
+f317: fe 69 06                     inc     Entity_DirGate,X        
+f31a: bd 69 06                     lda     Entity_DirGate,X        
 f31d: 29 0f                        and     #$0f                    
 f31f: f0 1a                        beq     <a href="#L_f33b">L_f33b</a>                  
 f321: c9 01                        cmp     #$01                    
 f323: 4c 32 f3                     jmp     <a href="#L_f332">L_f332</a>                  
-f326: de 69 06     <span id="L_f326">L_f326</span>          dec     $0669,X                 
-f329: bd 69 06                     lda     $0669,X                 
+f326: de 69 06     <span id="L_f326">L_f326</span>          dec     Entity_DirGate,X        
+f329: bd 69 06                     lda     Entity_DirGate,X        
 f32c: 29 0f                        and     #$0f                    
 f32e: c9 0f                        cmp     #$0f                    
 f330: f0 0e                        beq     <a href="#L_f340">L_f340</a>                  
@@ -8301,14 +8304,14 @@ f39c: bd 0b 05                     lda     Entity_Direction,X
 f39f: 29 01                        and     #$01                    
 f3a1: d0 13                        bne     <a href="#L_f3b6">L_f3b6</a>                  
 f3a3: a9 10        <span id="L_f3a3">L_f3a3</span>          lda     #$10                    
-f3a5: 9d d9 04     <span id="L_f3a5">L_f3a5</span>          sta     $04d9,X                 
+f3a5: 9d d9 04     <span id="L_f3a5">L_f3a5</span>          sta     Entity_SpriteTile,X     
 f3a8: bd 0b 05                     lda     Entity_Direction,X      
 f3ab: 4a                           lsr     A                       
 f3ac: 29 0f                        and     #$0f                    
 f3ae: a8                           tay                             
 f3af: 18                           clc                             
-f3b0: 7d d9 04                     adc     $04d9,X                 
-f3b3: 9d d9 04                     sta     $04d9,X                 
+f3b0: 7d d9 04                     adc     Entity_SpriteTile,X     
+f3b3: 9d d9 04                     sta     Entity_SpriteTile,X     
 f3b6: 60           <span id="L_f3b6">L_f3b6</span>          rts                             
 f3b7: bd 8e 04     <span id="L_f3b7">L_f3b7</span>          lda     Entity_Active,X         
 f3ba: 29 80                        and     #$80                    
@@ -8326,12 +8329,12 @@ f3d4: 29 01                        and     #$01
 f3d6: d0 de                        bne     <a href="#L_f3b6">L_f3b6</a>                  
 f3d8: a9 50        <span id="L_f3d8">L_f3d8</span>          lda     #$50                    
 f3da: 4c a5 f3                     jmp     <a href="#L_f3a5">L_f3a5</a>                  
-f3dd: fe 9b 06     <span id="L_f3dd">L_f3dd</span>          inc     $069b,X                 
-f3e0: bd 9b 06                     lda     $069b,X                 
+f3dd: fe 9b 06     <span id="L_f3dd">L_f3dd</span>          inc     Entity_FrameTick,X      
+f3e0: bd 9b 06                     lda     Entity_FrameTick,X      
 f3e3: 29 07                        and     #$07                    
 f3e5: 18                           clc                             
 f3e6: 69 10                        adc     #$10                    
-f3e8: 9d d9 04                     sta     $04d9,X                 
+f3e8: 9d d9 04                     sta     Entity_SpriteTile,X     
 f3eb: 60                           rts                             
 f3ec: 00 50 00 70 ..<span id="D_f3ec">D_f3ec</span>          .byte   $00, $50, $00, $70, $01, $b0, $00, $80
 f3f4: 00 50 00 80 ..                .byte   $00, $50, $00, $80, $01, $b0, $00, $70
@@ -8361,7 +8364,7 @@ f44f: 9d 3d 05                     sta     Entity_PosY_FracMid,X
 f452: a9 08                        lda     #$08                    
 f454: 9d 0b 05                     sta     Entity_Direction,X      
 f457: a9 14        <span id="L_f457">L_f457</span>          lda     #$14                    
-f459: 9d d9 04                     sta     $04d9,X                 
+f459: 9d d9 04                     sta     Entity_SpriteTile,X     
 f45c: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
 f45f: d0 06                        bne     <a href="#L_f467">L_f467</a>                  
 f461: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
@@ -8416,7 +8419,7 @@ f4d8: 9d 0b 05     <span id="L_f4d8">L_f4d8</span>          sta     Entity_Direc
 f4db: fe ba 05                     inc     Entity_TypeParam12,X    
 f4de: fe ba 05                     inc     Entity_TypeParam12,X    
 f4e1: a9 00                        lda     #$00                    
-f4e3: 9d 9b 06                     sta     $069b,X                 
+f4e3: 9d 9b 06                     sta     Entity_FrameTick,X      
 f4e6: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
 f4e9: f0 16                        beq     <a href="#L_f501">L_f501</a>                  
 f4eb: 20 32 fa                     jsr     <a href="#L_fa32">L_fa32</a>                  
@@ -8430,16 +8433,16 @@ f509: 05 c9 07 f0 ..                .byte   $05, $c9, $07, $f0, $2a, $bd, $0b, $
 f511: 29 0f d0 05 ..                .byte   $29, $0f, $d0, $05, $a9, $28, $4c, $1c
 f519: f5 a9 2c                     .byte   $f5, $a9, $2c
 f51c: 85 b0        <span id="L_f51c">L_f51c</span>          sta     $b0                     
-f51e: bd 9b 06                     lda     $069b,X                 
+f51e: bd 9b 06                     lda     Entity_FrameTick,X      
 f521: c9 06                        cmp     #$06                    
 f523: b0 0f                        bcs     <a href="#L_f534">L_f534</a>                  
-f525: fe 9b 06                     inc     $069b,X                 
-f528: bd 9b 06                     lda     $069b,X                 
+f525: fe 9b 06                     inc     Entity_FrameTick,X      
+f528: bd 9b 06                     lda     Entity_FrameTick,X      
 f52b: 4a                           lsr     A                       
 f52c: 29 03                        and     #$03                    
 f52e: 18                           clc                             
 f52f: 65 b0                        adc     $b0                     
-f531: 9d d9 04                     sta     $04d9,X                 
+f531: 9d d9 04                     sta     Entity_SpriteTile,X     
 f534: 20 75 c2     <span id="L_f534">L_f534</span>          jsr     <a href="#L_c275">L_c275</a>                  
 f537: 60                           rts                             
 f538: bd 0b 05 29 ..                .byte   $bd, $0b, $05, $29, $0f, $b0, $05, $a9
@@ -8450,7 +8453,7 @@ f558: 00 c0 00 40 ..                .byte   $00, $c0, $00, $40, $00, $d0, $00, $
 f560: 01 30 00 40 ..                .byte   $01, $30, $00, $40, $01, $40, $00, $40
 f568: 01 20 00 40 ..                .byte   $01, $20, $00, $40, $00, $f0, $00, $40
 f570: a9 ff        <span id="L_f570">L_f570</span>          lda     #$ff                    
-f572: 9d 9b 06                     sta     $069b,X                 
+f572: 9d 9b 06                     sta     Entity_FrameTick,X      
 f575: 20 d1 f6                     jsr     <a href="#L_f6d1">L_f6d1</a>                  
 f578: b1 8a                        lda     ($8a),Y                 
 f57a: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
@@ -8505,11 +8508,11 @@ f5e3: 9d 82 06                     sta     Entity_AnimTick,X
 f5e6: 20 02 b1     <span id="L_f5e6">L_f5e6</span>          jsr     <a href="#L_b102">L_b102</a>                  
 f5e9: 20 bc b0                     jsr     <a href="#L_b0bc">L_b0bc</a>                  
 f5ec: 20 c9 ad                     jsr     <a href="#L_adc9">L_adc9</a>                  
-f5ef: 9d 69 06                     sta     $0669,X                 
+f5ef: 9d 69 06                     sta     Entity_DirGate,X        
 f5f2: bd 0b 05                     lda     Entity_Direction,X      
 f5f5: 29 0f                        and     #$0f                    
 f5f7: 38                           sec                             
-f5f8: fd 69 06                     sbc     $0669,X                 
+f5f8: fd 69 06                     sbc     Entity_DirGate,X        
 f5fb: f0 26                        beq     <a href="#L_f623">L_f623</a>                  
 f5fd: 29 0f                        and     #$0f                    
 f5ff: c9 08                        cmp     #$08                    
@@ -8534,7 +8537,7 @@ f62d: b0 06                        bcs     <a href="#L_f635">L_f635</a>
 f62f: 20 32 fa                     jsr     <a href="#L_fa32">L_fa32</a>                  
 f632: 4c 3d f6                     jmp     <a href="#L_f63d">L_f63d</a>                  
 f635: a9 72        <span id="L_f635">L_f635</span>          lda     #$72                    
-f637: 9d d9 04                     sta     $04d9,X                 
+f637: 9d d9 04                     sta     Entity_SpriteTile,X     
 f63a: 20 00 fb                     jsr     <a href="#L_fb00">L_fb00</a>                  
 f63d: 20 02 b1     <span id="L_f63d">L_f63d</span>          jsr     <a href="#L_b102">L_b102</a>                  
 f640: 20 bc b0                     jsr     <a href="#L_b0bc">L_b0bc</a>                  
@@ -8566,16 +8569,16 @@ f689: a9 98 9d ec ..<span id="D_f689">D_f689</span>          .byte   $a9, $98, $
 f691: a9 9b        <span id="L_f691">L_f691</span>          lda     #$9b                    
 f693: 9d ec 05                     sta     Entity_AnimFrame,X      
 f696: a9 ff        <span id="L_f696">L_f696</span>          lda     #$ff                    
-f698: 9d 9b 06                     sta     $069b,X                 
-f69b: fe 9b 06                     inc     $069b,X                 
-f69e: bd 9b 06                     lda     $069b,X                 
+f698: 9d 9b 06                     sta     Entity_FrameTick,X      
+f69b: fe 9b 06                     inc     Entity_FrameTick,X      
+f69e: bd 9b 06                     lda     Entity_FrameTick,X      
 f6a1: 4a                           lsr     A                       
 f6a2: 29 07                        and     #$07                    
 f6a4: c9 04                        cmp     #$04                    
 f6a6: f0 1d                        beq     <a href="#L_f6c5">L_f6c5</a>                  
 f6a8: 18                           clc                             
 f6a9: 7d ec 05                     adc     Entity_AnimFrame,X      
-f6ac: 9d d9 04                     sta     $04d9,X                 
+f6ac: 9d d9 04                     sta     Entity_SpriteTile,X     
 f6af: 20 fc f7                     jsr     <a href="#L_f7fc">L_f7fc</a>                  
 f6b2: 90 03                        bcc     <a href="#L_f6b7">L_f6b7</a>                  
 f6b4: 4c 3c f8                     jmp     <a href="#L_f83c">L_f83c</a>                  
@@ -8599,7 +8602,7 @@ f6e8: bd 8e 04     <span id="L_f6e8">L_f6e8</span>          lda     Entity_Activ
 f6eb: 09 02                        ora     #$02                    
 f6ed: 9d 8e 04                     sta     Entity_Active,X         
 f6f0: a9 72                        lda     #$72                    
-f6f2: 9d d9 04                     sta     $04d9,X                 
+f6f2: 9d d9 04                     sta     Entity_SpriteTile,X     
 f6f5: ad c0 04                     lda     Entity_X                
 f6f8: c9 80                        cmp     #$80                    
 f6fa: b0 0d                        bcs     <a href="#L_f709">L_f709</a>                  
@@ -8655,23 +8658,23 @@ f787: a9 10                        lda     #$10
 f789: 4c 98 f7                     jmp     <a href="#L_f798">L_f798</a>                  
 f78c: bd d3 05 c9 ..<span id="D_f78c">D_f78c</span>          .byte   $bd, $d3, $05, $c9, $22, $90, $03, $4c
 f794: ae f7 a9 60                  .byte   $ae, $f7, $a9, $60
-f798: 9d d9 04     <span id="L_f798">L_f798</span>          sta     $04d9,X                 
+f798: 9d d9 04     <span id="L_f798">L_f798</span>          sta     Entity_SpriteTile,X     
 f79b: bd 0b 05                     lda     Entity_Direction,X      
 f79e: 4a                           lsr     A                       
 f79f: 29 0f                        and     #$0f                    
 f7a1: a8                           tay                             
 f7a2: 18                           clc                             
-f7a3: 7d d9 04                     adc     $04d9,X                 
+f7a3: 7d d9 04                     adc     Entity_SpriteTile,X     
 f7a6: 4c ab f7                     jmp     <a href="#L_f7ab">L_f7ab</a>                  
 f7a9: a9 72        <span id="D_f7a9">D_f7a9</span>          .byte   $a9, $72
 f7ab: 9d d9 04     <span id="D_f7ab">D_f7ab</span>          .byte   $9d, $d9, $04
 f7ae: 4c 75 c2     <span id="D_f7ae">D_f7ae</span>          .byte   $4c, $75, $c2
-f7b1: ee 9b 06     <span id="L_f7b1">L_f7b1</span>          inc     $069b                   
-f7b4: ad 9b 06                     lda     $069b                   
+f7b1: ee 9b 06     <span id="L_f7b1">L_f7b1</span>          inc     Entity_FrameTick        
+f7b4: ad 9b 06                     lda     Entity_FrameTick        
 f7b7: 4a                           lsr     A                       
 f7b8: 29 03                        and     #$03                    
 f7ba: 65 b0                        adc     $b0                     
-f7bc: 9d d9 04                     sta     $04d9,X                 
+f7bc: 9d d9 04                     sta     Entity_SpriteTile,X     
 f7bf: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 f7c2: 60                           rts                             
 f7c3: dd 0b 05 d0 ..<span id="D_f7c3">D_f7c3</span>          .byte   $dd, $0b, $05, $d0, $01, $60, $9d, $0b
@@ -8746,7 +8749,7 @@ f873: 9d ba 05                     sta     Entity_TypeParam12,X
 f876: a9 08                        lda     #$08                    
 f878: 9d 0b 05                     sta     Entity_Direction,X      
 f87b: a9 ff                        lda     #$ff                    
-f87d: 9d 9b 06                     sta     $069b,X                 
+f87d: 9d 9b 06                     sta     Entity_FrameTick,X      
 f880: bd d3 05                     lda     Entity_TypeId,X         
 f883: c9 30                        cmp     #$30                    
 f885: 90 03                        bcc     <a href="#L_f88a">L_f88a</a>                  
@@ -8762,13 +8765,13 @@ f89c: c9 ff                        cmp     #$ff
 f89e: f0 20                        beq     <a href="#L_f8c0">L_f8c0</a>                  
 f8a0: a9 13                        lda     #$13                    
 f8a2: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
-f8a5: fe 9b 06     <span id="L_f8a5">L_f8a5</span>          inc     $069b,X                 
-f8a8: bd 9b 06                     lda     $069b,X                 
+f8a5: fe 9b 06     <span id="L_f8a5">L_f8a5</span>          inc     Entity_FrameTick,X      
+f8a8: bd 9b 06                     lda     Entity_FrameTick,X      
 f8ab: c9 04                        cmp     #$04                    
 f8ad: b0 11                        bcs     <a href="#L_f8c0">L_f8c0</a>                  
 f8af: 18                           clc                             
 f8b0: 69 80                        adc     #$80                    
-f8b2: 9d d9 04                     sta     $04d9,X                 
+f8b2: 9d d9 04                     sta     Entity_SpriteTile,X     
 f8b5: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
 f8b8: f0 06                        beq     <a href="#L_f8c0">L_f8c0</a>                  
 f8ba: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
@@ -8805,7 +8808,7 @@ f8f9: 98           <span id="L_f8f9">L_f8f9</span>          tya
 f8fa: 0a                           asl     A                       
 f8fb: a8                           tay                             
 f8fc: b9 d3 fc                     lda     $fcd3,Y                 
-f8ff: 9d d9 04                     sta     $04d9,X                 
+f8ff: 9d d9 04                     sta     Entity_SpriteTile,X     
 f902: c8                           iny                             
 f903: b9 d3 fc                     lda     $fcd3,Y                 
 f906: 9d f2 04                     sta     Entity_Class,X          
@@ -8824,7 +8827,7 @@ f923: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>
 f926: 4c 09 f9                     jmp     <a href="#L_f909">L_f909</a>                  
 f929: a9 0f        <span id="L_f929">L_f929</span>          lda     #$0f                    
 f92b: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
-f92e: bd d9 04                     lda     $04d9,X                 
+f92e: bd d9 04                     lda     Entity_SpriteTile,X     
 f931: 38                           sec                             
 f932: e9 7a                        sbc     #$7a                    
 f934: 8d 18 07                     sta     $0718                   
@@ -8842,14 +8845,14 @@ f958: c9 ff                        cmp     #$ff
 f95a: f0 21                        beq     <a href="#L_f97d">L_f97d</a>                  
 f95c: a9 13                        lda     #$13                    
 f95e: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
-f961: fe 9b 06     <span id="L_f961">L_f961</span>          inc     $069b,X                 
-f964: bd 9b 06                     lda     $069b,X                 
+f961: fe 9b 06     <span id="L_f961">L_f961</span>          inc     Entity_FrameTick,X      
+f964: bd 9b 06                     lda     Entity_FrameTick,X      
 f967: 4a                           lsr     A                       
 f968: c9 0a                        cmp     #$0a                    
 f96a: b0 11                        bcs     <a href="#L_f97d">L_f97d</a>                  
 f96c: 18                           clc                             
 f96d: 69 84                        adc     #$84                    
-f96f: 9d d9 04                     sta     $04d9,X                 
+f96f: 9d d9 04                     sta     Entity_SpriteTile,X     
 f972: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
 f975: f0 06                        beq     <a href="#L_f97d">L_f97d</a>                  
 f977: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
@@ -8877,15 +8880,15 @@ f9ae: c9 ff                        cmp     #$ff
 f9b0: f0 cb                        beq     <a href="#L_f97d">L_f97d</a>                  
 f9b2: a9 12                        lda     #$12                    
 f9b4: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
-f9b7: fe 9b 06     <span id="L_f9b7">L_f9b7</span>          inc     $069b,X                 
-f9ba: bd 9b 06                     lda     $069b,X                 
+f9b7: fe 9b 06     <span id="L_f9b7">L_f9b7</span>          inc     Entity_FrameTick,X      
+f9ba: bd 9b 06                     lda     Entity_FrameTick,X      
 f9bd: 4a                           lsr     A                       
 f9be: 4a                           lsr     A                       
 f9bf: c9 03                        cmp     #$03                    
 f9c1: b0 11                        bcs     <a href="#L_f9d4">L_f9d4</a>                  
 f9c3: 18                           clc                             
 f9c4: 69 72                        adc     #$72                    
-f9c6: 9d d9 04                     sta     $04d9,X                 
+f9c6: 9d d9 04                     sta     Entity_SpriteTile,X     
 f9c9: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
 f9cc: f0 af                        beq     <a href="#L_f97d">L_f97d</a>                  
 f9ce: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
@@ -8895,7 +8898,7 @@ f9dc: f2 04 4c 61 ..                .byte   $f2, $04, $4c, $61, $f9
 f9e1: 85 b0        <span id="L_f9e1">L_f9e1</span>          sta     $b0                     
 f9e3: 18                           clc                             
 f9e4: 69 b0                        adc     #$b0                    
-f9e6: 9d d9 04                     sta     $04d9,X                 
+f9e6: 9d d9 04                     sta     Entity_SpriteTile,X     
 f9e9: a9 03                        lda     #$03                    
 f9eb: 9d f2 04                     sta     Entity_Class,X          
 f9ee: bd 8e 04                     lda     Entity_Active,X         
