@@ -138,6 +138,7 @@ Entity_Active = $048e  ; entity SOA attribute 0 (active flag): bit $80 = slot in
 Entity_Y     = $04a7  ; entity SOA attribute 1 (vertical position); 25 slots at +0..+24 within the table. Slot 0 is the player: UP drives toward $56 (top), DOWN toward $c1 (bottom)
 MenuCursor_Y = $04b2  ; Y position of the title-screen menu cursor — physically slot 11 of Entity_Y (the bullet slot during gameplay), repurposed on the title screen. Set to $7f / $8f / $9f for the three menu rows by the dispatch arms at $b6fc / $b702 / $b70a
 Entity_X     = $04c0  ; entity SOA attribute 2 (horizontal position); 25 slots. Slot 0 is the player: LEFT drives toward $1e (left edge), RIGHT toward $e6 (right edge). L_aa61 reads Entity_X,X / Entity_X,Y for collision checks between two arbitrary slots
+Entity_Class = $04f2  ; entity SOA attribute 4: per-spawn class/category byte. Observed values across init paths: $00 (enemy types 3/4 at $eede/$eef0), $01 (b4bf/b626), $02 (default enemy and most types — $b5b4/$ee98/$eebb/$ef18), $03 (player bullet at $d092). Persistent across EntityClear_Slot. Functions as a small enum that downstream handlers branch on (movement style, collision behavior, etc.) — exact mapping not yet confirmed but the player-bullet vs enemy distinction at 3 vs 2 is the cleanest signal
 Entity_Direction = $050b  ; entity SOA attribute 5 (8-direction code, $0..$e in steps of 2): $00=UP, $02=UP+RIGHT, $04=RIGHT, $06=DOWN+RIGHT, $08=DOWN, $0a=DOWN+LEFT, $0c=LEFT, $0e=UP+LEFT. Set by SetEntityDirection from the dpad handler. Confirmed live: move_left puts $0c into $050b
 Entity_PosY_HiBit = $0524  ; entity SOA attribute 6: high bit of the 24-bit fixed-point Y position. Updated in the Y-position integration at $b061-b08c where the carry from `lda $0399 / adc $0524,X` propagates back via `and #$01 / sta $0524,X`. Slot 0 = player. Pairs with Entity_PosY_FracMid ($053d, attr 7) and Entity_PosY_FracLo ($0556, attr 8) and the displayed integer Entity_Y ($04a7, attr 1)
 Entity_PosY_FracMid = $053d  ; entity SOA attribute 7: middle byte of the 24-bit Y position. The physics-tick at $b055-b05b reads `$039a` (Y-velocity mid) and adds it: `lda $039a / adc $053d,X / sta $053d,X`. Carries up into Entity_PosY_HiBit. Confirmed live: copied during slot-clone at $b1ab
@@ -145,7 +146,9 @@ Entity_PosY_FracLo = $0556  ; entity SOA attribute 8: lowest sub-pixel byte of t
 Entity_PosX_HiBit = $056f  ; entity SOA attribute 9: high bit of the 24-bit X position. Updated at $b0a2-b0aa where `lda $0396 / adc $056f,X / and #$01 / sta $056f,X` propagates the X-add carry. Pairs with Entity_PosX_FracMid ($0588, attr 10), Entity_PosX_FracLo ($05a1, attr 11), and displayed integer Entity_X ($04c0, attr 2)
 Entity_PosX_FracMid = $0588  ; entity SOA attribute 10: middle byte of the 24-bit X position. The physics-tick at $b099-b09f does `lda $0397 / adc $0588,X / sta $0588,X` (adds X-velocity mid byte). Carries up into Entity_PosX_HiBit. Confirmed live: copied during slot-clone at $b1bf, also written at the bullet-init site $d080
 Entity_PosX_FracLo = $05a1  ; entity SOA attribute 11: lowest sub-pixel byte of the X position. The physics-tick at $b08f-b096 does `lda $0398 / clc / adc $05a1,X / sta $05a1,X` (adds X-velocity low byte). Carries into Entity_PosX_FracMid. Confirmed live: copied during slot-clone at $b1b9, cleared at the bullet-init site $d088
+Entity_TypeParam12 = $05ba  ; entity SOA attribute 12: per-type init constant set by the EnemyType_InitDispatch handlers. Observed values: type 0 -> $11 ($ee93), type 1 -> $13 ($eeb6), type 3/4/7 -> $12 ($eed9/$eeec/$ef15). Cleared by EntityClear_Slot. Likely sprite tile-id base or HP/strength, but the per-type variation is small ($11..$14) so it's most consistent with a sprite/animation index
 Entity_TypeId = $05d3  ; entity SOA attribute 13: per-slot enemy/entity type id. Read at $ee79 by EnemyType_DispatchInit which `asl A / tay / lda $eff2,Y / sta PPU_SrcLo / iny / lda $eff2,Y / sta PPU_SrcHi / jmp ($008a)` — i.e. uses the type as an index into the 16-bit pointer table EnemyType_InitDispatch ($eff2) and dispatches to the matching per-type init routine. Confirmed live: enemy_observe drift saw values 03 and 0a appear in slots 14/18/19/20 right after spawns; type 10 ($0a) maps to dispatch entry $ef49
+Entity_TypeParam22 = $06b4  ; entity SOA attribute 22: per-type init constant in the persistent SOA band. Observed values: type 0 -> $44 (set at $ee9d), type 1 -> $5c ($eec0), type 7 -> $48 ($ef1f), and $20 from the non-dispatch init at $b614 (player-bullet-style entity). Confirmed live: enemy_observe slot 21 took on $44 right after a wave spawned (type 0). Survives EntityClear_Slot — likely a per-spawn parameter the entity refers to throughout its life (animation timer reset, collision-box dimension, or score-value-id)
 Entity_SpawnTypeRaw = $06cd  ; entity SOA attribute 23: per-slot raw enemy-type id as written by the spawn-script reader at $da3b-$da4d (which fills four consecutive slots Y..Y+3 from scratchpad bytes $b1/$b2/$b2/$b3 — a 4-enemy formation packet). Later copied into Entity_TypeId at $dadf when the slot is activated by Entity_ActivateFromSpawnTable. Survives EntityClear_Slot resets — that's why it's in the persistent-attrs band (4, 13, 19-24)
 TitleMenu_FrameTimer = $070b  ; title-screen frame counter for the menu-cursor blink: initialized to $ff at $b6c0 just before the menu loop entry, decremented every iteration at $b744. When (timer & 3)==0 the loop falls through to the cursor-blink eor at $b74e-b75a (the 5-byte mask at TitleMenu_CursorMask). Confirmed via idle_titlescreen drift: SAW with constant -50 step over 150-frame chunks (consistent with one dec per frame, modulo wrap)
 Bullet_SpawnPending = $0719  ; $01 written by Spawn_Bullet alongside Bullet_TargetSlot — likely a one-shot 'spawn requested' flag consumed by the entity update pass
@@ -3488,7 +3491,7 @@ b4b5: 9d 8e 04                     sta     Entity_Active,X
 b4b8: a9 ff                        lda     #$ff                    
 b4ba: 9d 9b 06                     sta     $069b,X                 
 b4bd: a9 01                        lda     #$01                    
-b4bf: 9d f2 04                     sta     $04f2,X                 
+b4bf: 9d f2 04                     sta     Entity_Class,X          
 b4c2: 4c 55 b4                     jmp     <a href="#L_b455">L_b455</a>                  
 b4c5: a9 8e        <span id="D_b4c5">D_b4c5</span>          .byte   $a9, $8e
 b4c7: 99 d9 04     <span id="L_b4c7">L_b4c7</span>          sta     $04d9,Y                 
@@ -3584,9 +3587,9 @@ b5ab: c8                           iny
 b5ac: b9 57 b6                     lda     $b657,Y                 
 b5af: 9d 3d 05                     sta     Entity_PosY_FracMid,X   
 b5b2: a9 02                        lda     #$02                    
-b5b4: 9d f2 04                     sta     $04f2,X                 
+b5b4: 9d f2 04                     sta     Entity_Class,X          
 b5b7: a9 01                        lda     #$01                    
-b5b9: 9d ba 05                     sta     $05ba,X                 
+b5b9: 9d ba 05                     sta     Entity_TypeParam12,X    
 b5bc: a9 00                        lda     #$00                    
 b5be: 9d 0b 05                     sta     Entity_Direction,X      
 b5c1: a9 10                        lda     #$10                    
@@ -3603,7 +3606,7 @@ b5da: fe 9b 06                     inc     $069b,X
 b5dd: bd 9b 06                     lda     $069b,X                 
 b5e0: 29 03                        and     #$03                    
 b5e2: d0 03                        bne     <a href="#L_b5e7">L_b5e7</a>                  
-b5e4: fe ba 05                     inc     $05ba,X                 
+b5e4: fe ba 05                     inc     Entity_TypeParam12,X    
 b5e7: 20 cd f7     <span id="L_b5e7">L_b5e7</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
 b5ea: f0 68                        beq     <a href="#L_b654">L_b654</a>                  
 b5ec: a0 00                        ldy     #$00                    
@@ -3621,16 +3624,16 @@ b606: 99 8e 04                     sta     Entity_Active,Y
 b609: 4c 3c f8                     jmp     <a href="#L_f83c">L_f83c</a>                  
 b60c: 20 75 c2 4c ..<span id="D_b60c">D_b60c</span>          .byte   $20, $75, $c2, $4c, $d3, $b5
 b612: a9 20        <span id="L_b612">L_b612</span>          lda     #$20                    
-b614: 9d b4 06                     sta     $06b4,X                 
+b614: 9d b4 06                     sta     Entity_TypeParam22,X    
 b617: a9 02                        lda     #$02                    
 b619: 9d d3 05                     sta     Entity_TypeId,X         
 b61c: 20 9c f1                     jsr     <a href="#L_f19c">L_f19c</a>                  
 b61f: a9 79                        lda     #$79                    
 b621: 9d d9 04                     sta     $04d9,X                 
 b624: a9 01                        lda     #$01                    
-b626: 9d f2 04                     sta     $04f2,X                 
+b626: 9d f2 04                     sta     Entity_Class,X          
 b629: a9 04                        lda     #$04                    
-b62b: 9d ba 05                     sta     $05ba,X                 
+b62b: 9d ba 05                     sta     Entity_TypeParam12,X    
 b62e: a9 08                        lda     #$08                    
 b630: 9d 0b 05                     sta     Entity_Direction,X      
 b633: 20 cd f7     <span id="L_b633">L_b633</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
@@ -4946,7 +4949,7 @@ c32d: a9 00        <span id="EntityClear_Slot">EntityClear_Slot</span>lda     #$
 c32f: 9d 8e 04                     sta     Entity_Active,X         
 c332: 9d d9 04                     sta     $04d9,X                 
 c335: 9d 0b 05                     sta     Entity_Direction,X      
-c338: 9d ba 05                     sta     $05ba,X                 
+c338: 9d ba 05                     sta     Entity_TypeParam12,X    
 c33b: 9d c0 04                     sta     Entity_X,X              
 c33e: 9d a7 04                     sta     Entity_Y,X              
 c341: 9d 6f 05                     sta     Entity_PosX_HiBit,X     
@@ -4993,7 +4996,7 @@ c3d9: c8                           iny
 c3da: bd d9 04                     lda     $04d9,X                 
 c3dd: 99 af 03                     sta     Player_OAM_Y,Y          
 c3e0: c8                           iny                             
-c3e1: bd f2 04                     lda     $04f2,X                 
+c3e1: bd f2 04                     lda     Entity_Class,X          
 c3e4: 99 af 03                     sta     Player_OAM_Y,Y          
 c3e7: c8                           iny                             
 c3e8: bd c0 04                     lda     Entity_X,X              
@@ -5559,7 +5562,7 @@ d088: a9 00                        lda     #$00
 d08a: 8d a1 05                     sta     Entity_PosX_FracLo      
 d08d: 8d 56 05                     sta     Entity_PosY_FracLo      
 d090: a9 03                        lda     #$03                    
-d092: 8d f2 04                     sta     $04f2                   
+d092: 8d f2 04                     sta     Entity_Class            
 d095: ad bc 07                     lda     TwoPlayer_Mode          
 d098: f0 0b                        beq     <a href="#L_d0a5">L_d0a5</a>                  
 d09a: ad 37 04                     lda     Respawn_Count           
@@ -5573,7 +5576,7 @@ d0b3: 75 c2        <span id="L_d0b3">L_d0b3</span>          adc     $c2,X
 d0b5: a9 00        <span id="L_d0b5">L_d0b5</span>          lda     #$00                    
 d0b7: 8d 0b 05                     sta     Entity_Direction        
 d0ba: a9 08                        lda     #$08                    
-d0bc: 8d ba 05                     sta     $05ba                   
+d0bc: 8d ba 05                     sta     Entity_TypeParam12      
 d0bf: a9 0a        <span id="L_d0bf">L_d0bf</span>          lda     #$0a                    
 d0c1: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d0c4: 20 9a d1                     jsr     <a href="#L_d19a">L_d19a</a>                  
@@ -5652,7 +5655,7 @@ d17c: 8d 56 05                     sta     Entity_PosY_FracLo
 d17f: a9 00                        lda     #$00                    
 d181: 8d d9 04                     sta     $04d9                   
 d184: a9 14                        lda     #$14                    
-d186: 8d ba 05                     sta     $05ba                   
+d186: 8d ba 05                     sta     Entity_TypeParam12      
 d189: 20 d7 b1                     jsr     <a href="#L_b1d7">L_b1d7</a>                  
 d18c: ad 8e 04                     lda     Entity_Active           
 d18f: 29 be                        and     #$be                    
@@ -5875,7 +5878,7 @@ d44a: 99 d9 04                     sta     $04d9,Y
 d44d: 4c 55 d4                     jmp     <a href="#L_d455">L_d455</a>                  
 d450: a9 0d 99 d9 ..<span id="D_d450">D_d450</span>          .byte   $a9, $0d, $99, $d9, $04
 d455: a9 01        <span id="L_d455">L_d455</span>          lda     #$01                    
-d457: 99 f2 04                     sta     $04f2,Y                 
+d457: 99 f2 04                     sta     Entity_Class,Y          
 d45a: a9 14                        lda     #$14                    
 d45c: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d45f: ce 19 07                     dec     Bullet_SpawnPending     
@@ -5969,7 +5972,7 @@ d5aa: 9d 8e 04                     sta     Entity_Active,X
 d5ad: a9 ff                        lda     #$ff                    
 d5af: 9d 9b 06                     sta     $069b,X                 
 d5b2: a9 01                        lda     #$01                    
-d5b4: 9d f2 04                     sta     $04f2,X                 
+d5b4: 9d f2 04                     sta     Entity_Class,X          
 d5b7: a9 12                        lda     #$12                    
 d5b9: 20 6b a0                     jsr     <a href="#PPU_Queue_Refresh">PPU_Queue_Refresh</a>       
 d5bc: fe 9b 06                     inc     $069b,X                 
@@ -6018,7 +6021,7 @@ d61f: f0 15                        beq     <a href="#L_d636">L_d636</a>
 d621: a9 08                        lda     #$08                    
 d623: 9d 0b 05                     sta     Entity_Direction,X      
 d626: a9 1e                        lda     #$1e                    
-d628: 9d ba 05                     sta     $05ba,X                 
+d628: 9d ba 05                     sta     Entity_TypeParam12,X    
 d62b: a9 14                        lda     #$14                    
 d62d: 9d d9 04                     sta     $04d9,X                 
 d630: 20 89 d5                     jsr     <a href="#ApplyMovement">ApplyMovement</a>           
@@ -6096,8 +6099,8 @@ d6f5: 29 fb                        and     #$fb
 d6f7: 9d 8e 04                     sta     Entity_Active,X         
 d6fa: ad 0b 05                     lda     Entity_Direction        
 d6fd: 9d 0b 05                     sta     Entity_Direction,X      
-d700: ad ba 05                     lda     $05ba                   
-d703: 9d ba 05                     sta     $05ba,X                 
+d700: ad ba 05                     lda     Entity_TypeParam12      
+d703: 9d ba 05                     sta     Entity_TypeParam12,X    
 d706: a9 01                        lda     #$01                    
 d708: 9d d9 04                     sta     $04d9,X                 
 d70b: 4c fc d1                     jmp     <a href="#L_d1fc">L_d1fc</a>                  
@@ -6645,9 +6648,9 @@ dbea: 99 24 05                     sta     Entity_PosY_HiBit,Y
 dbed: a9 08                        lda     #$08                    
 dbef: 99 0b 05                     sta     Entity_Direction,Y      
 dbf2: a9 1e                        lda     #$1e                    
-dbf4: 99 ba 05                     sta     $05ba,Y                 
+dbf4: 99 ba 05                     sta     Entity_TypeParam12,Y    
 dbf7: a9 03                        lda     #$03                    
-dbf9: 99 f2 04                     sta     $04f2,Y                 
+dbf9: 99 f2 04                     sta     Entity_Class,Y          
 dbfc: c8                           iny                             
 dbfd: c0 03                        cpy     #$03                    
 dbff: 90 dd                        bcc     <a href="#L_dbde">L_dbde</a>                  
@@ -7718,7 +7721,7 @@ ece1: 9d c0 04                     sta     Entity_X,X
 ece4: a9 a8                        lda     #$a8                    
 ece6: 9d a7 04                     sta     Entity_Y,X              
 ece9: a9 04                        lda     #$04                    
-eceb: 9d f2 04                     sta     $04f2,X                 
+eceb: 9d f2 04                     sta     Entity_Class,X          
 ecee: 4c 5c ed                     jmp     <a href="#L_ed5c">L_ed5c</a>                  
 ecf1: a2 12        <span id="L_ecf1">L_ecf1</span>          ldx     #$12                    
 ecf3: ad 8c 07                     lda     $078c                   
@@ -7736,7 +7739,7 @@ ed0d: 9d c0 04                     sta     Entity_X,X
 ed10: a9 d0                        lda     #$d0                    
 ed12: 9d a7 04                     sta     Entity_Y,X              
 ed15: a9 03                        lda     #$03                    
-ed17: 9d f2 04                     sta     $04f2,X                 
+ed17: 9d f2 04                     sta     Entity_Class,X          
 ed1a: 4c 5c ed                     jmp     <a href="#L_ed5c">L_ed5c</a>                  
 ed1d: a9 a0 9d c0 ..<span id="D_ed1d">D_ed1d</span>          .byte   $a9, $a0, $9d, $c0, $04, $a9, $b8, $9d
 ed25: a7 04 4c 57 ..                .byte   $a7, $04, $4c, $57, $ed, $a2, $13, $ad
@@ -7747,7 +7750,7 @@ ed45: 4c 36 ee a2 ..                .byte   $4c, $36, $ee, $a2, $15, $ad, $8d, $
 ed4d: c9 ff f0 03 ..                .byte   $c9, $ff, $f0, $03, $4c, $5f, $ee, $4c
 ed55: 36 ee                        .byte   $36, $ee
 ed57: a9 02        <span id="L_ed57">L_ed57</span>          lda     #$02                    
-ed59: 9d f2 04                     sta     $04f2,X                 
+ed59: 9d f2 04                     sta     Entity_Class,X          
 ed5c: a9 88        <span id="L_ed5c">L_ed5c</span>          lda     #$88                    
 ed5e: 9d 8e 04                     sta     Entity_Active,X         
 ed61: 20 75 c2     <span id="L_ed61">L_ed61</span>          jsr     <a href="#L_c275">L_c275</a>                  
@@ -7790,9 +7793,9 @@ edbe: 99 8e 04                     sta     Entity_Active,Y
 edc1: a9 80                        lda     #$80                    
 edc3: 99 d9 04                     sta     $04d9,Y                 
 edc6: a9 01                        lda     #$01                    
-edc8: 99 f2 04                     sta     $04f2,Y                 
+edc8: 99 f2 04                     sta     Entity_Class,Y          
 edcb: a9 02                        lda     #$02                    
-edcd: 99 ba 05                     sta     $05ba,Y                 
+edcd: 99 ba 05                     sta     Entity_TypeParam12,Y    
 edd0: a9 ff                        lda     #$ff                    
 edd2: 99 9b 06                     sta     $069b,Y                 
 edd5: a5 b0                        lda     $b0                     
@@ -7871,11 +7874,11 @@ ee89: 6c 8a 00                     jmp     ($008a)
 ee8c: a9 00        <span id="L_ee8c">L_ee8c</span>          lda     #$00                    
 ee8e: 9d d3 05                     sta     Entity_TypeId,X         
 ee91: a9 11                        lda     #$11                    
-ee93: 9d ba 05                     sta     $05ba,X                 
+ee93: 9d ba 05                     sta     Entity_TypeParam12,X    
 ee96: a9 02                        lda     #$02                    
-ee98: 9d f2 04                     sta     $04f2,X                 
+ee98: 9d f2 04                     sta     Entity_Class,X          
 ee9b: a9 44                        lda     #$44                    
-ee9d: 9d b4 06                     sta     $06b4,X                 
+ee9d: 9d b4 06                     sta     Entity_TypeParam22,X    
 eea0: 20 76 f1                     jsr     <a href="#L_f176">L_f176</a>                  
 eea3: bd 0b 05                     lda     Entity_Direction,X      
 eea6: 29 fe                        and     #$fe                    
@@ -7884,11 +7887,11 @@ eeab: 20 86 f3                     jsr     <a href="#L_f386">L_f386</a>
 eeae: 20 5a f1                     jsr     <a href="#L_f15a">L_f15a</a>                  
 eeb1: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
 eeb4: a9 13        <span id="L_eeb4">L_eeb4</span>          lda     #$13                    
-eeb6: 9d ba 05                     sta     $05ba,X                 
+eeb6: 9d ba 05                     sta     Entity_TypeParam12,X    
 eeb9: a9 02                        lda     #$02                    
-eebb: 9d f2 04                     sta     $04f2,X                 
+eebb: 9d f2 04                     sta     Entity_Class,X          
 eebe: a9 5c                        lda     #$5c                    
-eec0: 9d b4 06                     sta     $06b4,X                 
+eec0: 9d b4 06                     sta     Entity_TypeParam22,X    
 eec3: 20 4c f3                     jsr     <a href="#L_f34c">L_f34c</a>                  
 eec6: bd 0b 05                     lda     Entity_Direction,X      
 eec9: 29 fe                        and     #$fe                    
@@ -7897,42 +7900,42 @@ eece: 20 86 f3                     jsr     <a href="#L_f386">L_f386</a>
 eed1: 20 5a f1                     jsr     <a href="#L_f15a">L_f15a</a>                  
 eed4: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
 eed7: a9 12        <span id="L_eed7">L_eed7</span>          lda     #$12                    
-eed9: 9d ba 05                     sta     $05ba,X                 
+eed9: 9d ba 05                     sta     Entity_TypeParam12,X    
 eedc: a9 00                        lda     #$00                    
-eede: 9d f2 04                     sta     $04f2,X                 
+eede: 9d f2 04                     sta     Entity_Class,X          
 eee1: 20 54 f0                     jsr     <a href="#L_f054">L_f054</a>                  
 eee4: 20 5a f1                     jsr     <a href="#L_f15a">L_f15a</a>                  
 eee7: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
 eeea: a9 12        <span id="L_eeea">L_eeea</span>          lda     #$12                    
-eeec: 9d ba 05                     sta     $05ba,X                 
+eeec: 9d ba 05                     sta     Entity_TypeParam12,X    
 eeef: a9 00                        lda     #$00                    
-eef1: 9d f2 04                     sta     $04f2,X                 
+eef1: 9d f2 04                     sta     Entity_Class,X          
 eef4: 20 54 f0                     jsr     <a href="#L_f054">L_f054</a>                  
 eef7: 20 ce f0                     jsr     <a href="#L_f0ce">L_f0ce</a>                  
 eefa: 20 5a f1                     jsr     <a href="#L_f15a">L_f15a</a>                  
 eefd: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
 ef00: a9 12        <span id="L_ef00">L_ef00</span>          lda     #$12                    
-ef02: 9d ba 05                     sta     $05ba,X                 
+ef02: 9d ba 05                     sta     Entity_TypeParam12,X    
 ef05: a9 00                        lda     #$00                    
-ef07: 9d f2 04                     sta     $04f2,X                 
+ef07: 9d f2 04                     sta     Entity_Class,X          
 ef0a: 20 2c f4                     jsr     <a href="#L_f42c">L_f42c</a>                  
 ef0d: 20 ba f4                     jsr     <a href="#L_f4ba">L_f4ba</a>                  
 ef10: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
 ef13: a9 12        <span id="L_ef13">L_ef13</span>          lda     #$12                    
-ef15: 9d ba 05                     sta     $05ba,X                 
+ef15: 9d ba 05                     sta     Entity_TypeParam12,X    
 ef18: a9 02                        lda     #$02                    
-ef1a: 9d f2 04                     sta     $04f2,X                 
+ef1a: 9d f2 04                     sta     Entity_Class,X          
 ef1d: a9 48                        lda     #$48                    
-ef1f: 9d b4 06                     sta     $06b4,X                 
+ef1f: 9d b4 06                     sta     Entity_TypeParam22,X    
 ef22: 20 4c f3                     jsr     <a href="#L_f34c">L_f34c</a>                  
 ef25: 20 ba f4                     jsr     <a href="#L_f4ba">L_f4ba</a>                  
 ef28: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
 ef2b: a9 12        <span id="L_ef2b">L_ef2b</span>          lda     #$12                    
-ef2d: 9d ba 05                     sta     $05ba,X                 
+ef2d: 9d ba 05                     sta     Entity_TypeParam12,X    
 ef30: a9 00                        lda     #$00                    
-ef32: 9d f2 04                     sta     $04f2,X                 
+ef32: 9d f2 04                     sta     Entity_Class,X          
 ef35: a9 35                        lda     #$35                    
-ef37: 9d b4 06                     sta     $06b4,X                 
+ef37: 9d b4 06                     sta     Entity_TypeParam22,X    
 ef3a: 20 54 f0                     jsr     <a href="#L_f054">L_f054</a>                  
 ef3d: 20 ce f0                     jsr     <a href="#L_f0ce">L_f0ce</a>                  
 ef40: 20 76 f1                     jsr     <a href="#L_f176">L_f176</a>                  
@@ -7940,9 +7943,9 @@ ef43: 20 5a f1                     jsr     <a href="#L_f15a">L_f15a</a>
 ef46: 4c 4a f9                     jmp     <a href="#L_f94a">L_f94a</a>                  
 ef49: ee 17 07     <span id="L_ef49">L_ef49</span>          inc     $0717                   
 ef4c: a9 01                        lda     #$01                    
-ef4e: 9d f2 04                     sta     $04f2,X                 
+ef4e: 9d f2 04                     sta     Entity_Class,X          
 ef51: a9 15                        lda     #$15                    
-ef53: 9d ba 05                     sta     $05ba,X                 
+ef53: 9d ba 05                     sta     Entity_TypeParam12,X    
 ef56: a9 00                        lda     #$00                    
 ef58: 9d 82 06                     sta     $0682,X                 
 ef5b: bd 8e 04                     lda     Entity_Active,X         
@@ -7956,9 +7959,9 @@ ef6e: bd 8e 04     <span id="L_ef6e">L_ef6e</span>          lda     Entity_Activ
 ef71: 09 02                        ora     #$02                    
 ef73: 9d 8e 04                     sta     Entity_Active,X         
 ef76: a9 02                        lda     #$02                    
-ef78: 9d f2 04                     sta     $04f2,X                 
+ef78: 9d f2 04                     sta     Entity_Class,X          
 ef7b: a9 0a                        lda     #$0a                    
-ef7d: 9d ba 05                     sta     $05ba,X                 
+ef7d: 9d ba 05                     sta     Entity_TypeParam12,X    
 ef80: a9 00                        lda     #$00                    
 ef82: 9d 82 06                     sta     $0682,X                 
 ef85: 9d ec 05                     sta     $05ec,X                 
@@ -7975,9 +7978,9 @@ efc6: 02 9d f2 04 ..                .byte   $02, $9d, $f2, $04, $4c, $91, $ef, $
 efce: 02 9d f2 04 ..                .byte   $02, $9d, $f2, $04, $a9, $60, $9d, $d9
 efd6: 04 4c 7b ef                  .byte   $04, $4c, $7b, $ef
 efda: a9 02        <span id="L_efda">L_efda</span>          lda     #$02                    
-efdc: 9d f2 04                     sta     $04f2,X                 
+efdc: 9d f2 04                     sta     Entity_Class,X          
 efdf: a9 0b                        lda     #$0b                    
-efe1: 9d ba 05                     sta     $05ba,X                 
+efe1: 9d ba 05                     sta     Entity_TypeParam12,X    
 efe4: a9 00                        lda     #$00                    
 efe6: 9d 82 06                     sta     $0682,X                 
 efe9: 9d ec 05                     sta     $05ec,X                 
@@ -8061,7 +8064,7 @@ f121: a8                           tay
 f122: b9 4a f1                     lda     $f14a,Y                 
 f125: 20 c3 f7                     jsr     <a href="#L_f7c3">L_f7c3</a>                  
 f128: a9 00                        lda     #$00                    
-f12a: 9d f2 04                     sta     $04f2,X                 
+f12a: 9d f2 04                     sta     Entity_Class,X          
 f12d: 60                           rts                             
 f12e: 00 90 00 40 ..<span id="D_f12e">D_f12e</span>          .byte   $00, $90, $00, $40, $00, $a0, $00, $40
 f136: 01 40 00 40 ..                .byte   $01, $40, $00, $40, $01, $50, $00, $40
@@ -8122,7 +8125,7 @@ f1db: c8                           iny
 f1dc: c8                           iny                             
 f1dd: b9 53 fc                     lda     $fc53,Y                 
 f1e0: 38                           sec                             
-f1e1: fd b4 06                     sbc     $06b4,X                 
+f1e1: fd b4 06                     sbc     Entity_TypeParam22,X    
 f1e4: b0 15                        bcs     <a href="#L_f1fb">L_f1fb</a>                  
 f1e6: 38                           sec                             
 f1e7: e9 10                        sbc     #$10                    
@@ -8195,7 +8198,7 @@ f29e: b9 53 fc                     lda     $fc53,Y
 f2a1: 8d 9a 03                     sta     $039a                   
 f2a4: bd 69 06                     lda     $0669,X                 
 f2a7: 85 86                        sta     $86                     
-f2a9: bd b4 06                     lda     $06b4,X                 
+f2a9: bd b4 06                     lda     Entity_TypeParam22,X    
 f2ac: 85 85                        sta     $85                     
 f2ae: 20 f0 ae                     jsr     <a href="#L_aef0">L_aef0</a>                  
 f2b1: ad 97 03                     lda     $0397                   
@@ -8404,8 +8407,8 @@ f4d1: a9 0a                        lda     #$0a
 f4d3: 4c d8 f4                     jmp     <a href="#L_f4d8">L_f4d8</a>                  
 f4d6: a9 06        <span id="D_f4d6">D_f4d6</span>          .byte   $a9, $06
 f4d8: 9d 0b 05     <span id="L_f4d8">L_f4d8</span>          sta     Entity_Direction,X      
-f4db: fe ba 05                     inc     $05ba,X                 
-f4de: fe ba 05                     inc     $05ba,X                 
+f4db: fe ba 05                     inc     Entity_TypeParam12,X    
+f4de: fe ba 05                     inc     Entity_TypeParam12,X    
 f4e1: a9 00                        lda     #$00                    
 f4e3: 9d 9b 06                     sta     $069b,X                 
 f4e6: 20 cd f7                     jsr     <a href="#L_f7cd">L_f7cd</a>                  
@@ -8670,7 +8673,7 @@ f7cb: 05 60                        .byte   $05, $60
 f7cd: ad 37 04     <span id="L_f7cd">L_f7cd</span>          lda     Respawn_Count           
 f7d0: c9 ff                        cmp     #$ff                    
 f7d2: f0 68                        beq     <a href="#L_f83c">L_f83c</a>                  
-f7d4: bd ba 05                     lda     $05ba,X                 
+f7d4: bd ba 05                     lda     Entity_TypeParam12,X    
 f7d7: 20 48 b0                     jsr     <a href="#L_b048">L_b048</a>                  
 f7da: 20 d7 b1                     jsr     <a href="#L_b1d7">L_b1d7</a>                  
 f7dd: 20 7b b3                     jsr     <a href="#L_b37b">L_b37b</a>                  
@@ -8733,7 +8736,7 @@ f869: bd 8e 04     <span id="L_f869">L_f869</span>          lda     Entity_Activ
 f86c: 09 20                        ora     #$20                    
 f86e: 9d 8e 04                     sta     Entity_Active,X         
 f871: a9 04                        lda     #$04                    
-f873: 9d ba 05                     sta     $05ba,X                 
+f873: 9d ba 05                     sta     Entity_TypeParam12,X    
 f876: a9 08                        lda     #$08                    
 f878: 9d 0b 05                     sta     Entity_Direction,X      
 f87b: a9 ff                        lda     #$ff                    
@@ -8743,7 +8746,7 @@ f883: c9 30                        cmp     #$30
 f885: 90 03                        bcc     <a href="#L_f88a">L_f88a</a>                  
 f887: 4c ab f9                     jmp     <a href="#L_f9ab">L_f9ab</a>                  
 f88a: a9 01        <span id="L_f88a">L_f88a</span>          lda     #$01                    
-f88c: 9d f2 04                     sta     $04f2,X                 
+f88c: 9d f2 04                     sta     Entity_Class,X          
 f88f: bd d3 05                     lda     Entity_TypeId,X         
 f892: c9 20                        cmp     #$20                    
 f894: 90 03                        bcc     <a href="#L_f899">L_f899</a>                  
@@ -8799,7 +8802,7 @@ f8fc: b9 d3 fc                     lda     $fcd3,Y
 f8ff: 9d d9 04                     sta     $04d9,X                 
 f902: c8                           iny                             
 f903: b9 d3 fc                     lda     $fcd3,Y                 
-f906: 9d f2 04                     sta     $04f2,X                 
+f906: 9d f2 04                     sta     Entity_Class,X          
 f909: 20 cd f7     <span id="L_f909">L_f909</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
 f90c: f0 3c                        beq     <a href="#L_f94a">L_f94a</a>                  
 f90e: a0 01                        ldy     #$01                    
@@ -8848,7 +8851,7 @@ f97a: 4c 61 f9                     jmp     <a href="#L_f961">L_f961</a>
 f97d: bd d3 05     <span id="L_f97d">L_f97d</span>          lda     Entity_TypeId,X         
 f980: c9 30                        cmp     #$30                    
 f982: b0 12                        bcs     <a href="#L_f996">L_f996</a>                  
-f984: bd f2 04                     lda     $04f2,X                 
+f984: bd f2 04                     lda     Entity_Class,X          
 f987: f0 05                        beq     <a href="#L_f98e">L_f98e</a>                  
 f989: a9 01                        lda     #$01                    
 f98b: 4c 90 f9                     jmp     <a href="#L_f990">L_f990</a>                  
@@ -8888,7 +8891,7 @@ f9e3: 18                           clc
 f9e4: 69 b0                        adc     #$b0                    
 f9e6: 9d d9 04                     sta     $04d9,X                 
 f9e9: a9 03                        lda     #$03                    
-f9eb: 9d f2 04                     sta     $04f2,X                 
+f9eb: 9d f2 04                     sta     Entity_Class,X          
 f9ee: bd 8e 04                     lda     Entity_Active,X         
 f9f1: 29 40                        and     #$40                    
 f9f3: f0 12                        beq     <a href="#L_fa07">L_fa07</a>                  
@@ -8995,7 +8998,7 @@ facd: 60                           rts
 face: a5 b0        <span id="L_face">L_face</span>          lda     $b0                     
 fad0: 99 0b 05                     sta     Entity_Direction,Y      
 fad3: a9 14                        lda     #$14                    
-fad5: 99 ba 05                     sta     $05ba,Y                 
+fad5: 99 ba 05                     sta     Entity_TypeParam12,Y    
 fad8: bd 88 05                     lda     Entity_PosX_FracMid,X   
 fadb: 99 88 05                     sta     Entity_PosX_FracMid,Y   
 fade: bd 6f 05                     lda     Entity_PosX_HiBit,X     
@@ -9005,7 +9008,7 @@ fae7: 99 3d 05                     sta     Entity_PosY_FracMid,Y
 faea: bd 24 05                     lda     Entity_PosY_HiBit,X     
 faed: 99 24 05                     sta     Entity_PosY_HiBit,Y     
 faf0: a9 01                        lda     #$01                    
-faf2: 99 f2 04                     sta     $04f2,Y                 
+faf2: 99 f2 04                     sta     Entity_Class,Y          
 faf5: a9 88                        lda     #$88                    
 faf7: 99 8e 04                     sta     Entity_Active,Y         
 fafa: a9 00                        lda     #$00                    
@@ -9106,7 +9109,7 @@ fbbb: 4c 2f fc                     jmp     <a href="#L_fc2f">L_fc2f</a>
 fbbe: a5 b0        <span id="L_fbbe">L_fbbe</span>          lda     $b0                     
 fbc0: 99 0b 05                     sta     Entity_Direction,Y      
 fbc3: a9 14                        lda     #$14                    
-fbc5: 99 ba 05                     sta     $05ba,Y                 
+fbc5: 99 ba 05                     sta     Entity_TypeParam12,Y    
 fbc8: bd 88 05                     lda     Entity_PosX_FracMid,X   
 fbcb: 99 88 05                     sta     Entity_PosX_FracMid,Y   
 fbce: bd 6f 05                     lda     Entity_PosX_HiBit,X     
@@ -9116,7 +9119,7 @@ fbd7: 99 3d 05                     sta     Entity_PosY_FracMid,Y
 fbda: bd 24 05                     lda     Entity_PosY_HiBit,X     
 fbdd: 99 24 05                     sta     Entity_PosY_HiBit,Y     
 fbe0: a9 01                        lda     #$01                    
-fbe2: 99 f2 04                     sta     $04f2,Y                 
+fbe2: 99 f2 04                     sta     Entity_Class,Y          
 fbe5: a9 88                        lda     #$88                    
 fbe7: 99 8e 04                     sta     Entity_Active,Y         
 fbea: bd d3 05                     lda     Entity_TypeId,X         
