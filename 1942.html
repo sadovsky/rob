@@ -2600,7 +2600,7 @@ aa5b: b0 02                        bcs     <a href="#L_aa5f">L_aa5f</a>
 aa5d: 18           <span id="L_aa5d">L_aa5d</span>          clc                             
 aa5e: 60                           rts                             
 aa5f: 38 60        <span id="D_aa5f">D_aa5f</span>          .byte   $38, $60
-aa61: 8c 1d 07     <span id="L_aa61">L_aa61</span>          sty     $071d                   
+aa61: 8c 1d 07     <span id="Collision_AABB">Collision_AABB</span>  sty     $071d                   
 aa64: bd c0 04                     lda     Entity_X,X              
 aa67: 8d 91 03                     sta     $0391                   
 aa6a: bd a7 04                     lda     Entity_Y,X              
@@ -2610,7 +2610,7 @@ aa73: 8d 97 03                     sta     $0397
 aa76: b9 a7 04                     lda     Entity_Y,Y              
 aa79: 8d 9a 03                     sta     $039a                   
 aa7c: bd d9 04                     lda     Entity_SpriteTile,X     
-aa7f: 20 2c ab                     jsr     <a href="#L_ab2c">L_ab2c</a>                  
+aa7f: 20 2c ab                     jsr     <a href="#Hitbox_Switch">Hitbox_Switch</a>           
 aa82: a0 00                        ldy     #$00                    
 aa84: b1 8a        <span id="L_aa84">L_aa84</span>          lda     ($8a),Y                 
 aa86: 99 b0 00                     sta     $00b0,Y                 
@@ -2619,7 +2619,7 @@ aa8a: c0 04                        cpy     #$04
 aa8c: 90 f6                        bcc     <a href="#L_aa84">L_aa84</a>                  
 aa8e: ac 1d 07                     ldy     $071d                   
 aa91: b9 d9 04                     lda     Entity_SpriteTile,Y     
-aa94: 20 2c ab                     jsr     <a href="#L_ab2c">L_ab2c</a>                  
+aa94: 20 2c ab                     jsr     <a href="#Hitbox_Switch">Hitbox_Switch</a>           
 aa97: a0 00                        ldy     #$00                    
 aa99: b1 8a        <span id="L_aa99">L_aa99</span>          lda     ($8a),Y                 
 aa9b: 99 b4 00                     sta     $00b4,Y                 
@@ -2710,7 +2710,7 @@ aba4: ab c9 79 b0 ..                .byte   $ab, $c9, $79, $b0, $05, $a9, $0d, $
 abac: c2 ab c9 8e ..                .byte   $c2, $ab, $c9, $8e, $b0, $05, $a9, $0e
 abb4: 4c c2 ab c9 ..                .byte   $4c, $c2, $ab, $c9, $8f, $b0, $05, $a9
 abbc: 0f 4c c2 ab ..                .byte   $0f, $4c, $c2, $ab, $a9, $10
-abc2: 0a           <span id="Score_LookupValue">Score_LookupValue</span>asl     A                       
+abc2: 0a           <span id="Hitbox_Lookup">Hitbox_Lookup</span>   asl     A                       
 abc3: 0a                           asl     A                       
 abc4: 18                           clc                             
 abc5: 69 d0                        adc     #$d0                    
@@ -2719,7 +2719,7 @@ abc9: a9 00                        lda     #$00
 abcb: 69 ab                        adc     #$ab                    
 abcd: 85 8b                        sta     PPU_SrcHi               
 abcf: 60                           rts                             
-abd0: 05 05 04 03 ..                .byte   $05, $05, $04, $03, $03, $03, $03, $03
+abd0: 05 05 04 03 ..<span id="D_abd0">D_abd0</span>          .byte   $05, $05, $04, $03, $03, $03, $03, $03
 abd8: 05 05 05 05 ..                .byte   $05, $05, $05, $05, $09, $09, $05, $05
 abe0: 11 11 05 05 ..                .byte   $11, $11, $05, $05, $11, $09, $05, $05
 abe8: 09 11 05 05 ..                .byte   $09, $11, $05, $05, $11, $11, $05, $05
@@ -3450,7 +3450,7 @@ b441: b9 d3 05     <span id="L_b441">L_b441</span>          lda     Entity_TypeI
 b444: c9 ff                        cmp     #$ff                    
 b446: 90 03                        bcc     <a href="#Collision_Player_JSR">Collision_Player_JSR</a>    
 b448: 4c c5 b4                     jmp     <a href="#L_b4c5">L_b4c5</a>                  
-b44b: 20 61 aa     <span id="Collision_Player_JSR">Collision_Player_JSR</span>jsr     <a href="#L_aa61">L_aa61</a>                  
+b44b: 20 61 aa     <span id="Collision_Player_JSR">Collision_Player_JSR</span>jsr     <a href="#Collision_AABB">Collision_AABB</a>          
 b44e: b0 09                        bcs     <a href="#L_b459">L_b459</a>                  
 b450: c8           <span id="L_b450">L_b450</span>          iny                             
 b451: c0 19                        cpy     #$19                    
@@ -3504,11 +3504,11 @@ b4bf: 9d f2 04                     sta     Entity_Class,X
 b4c2: 4c 55 b4                     jmp     <a href="#L_b455">L_b455</a>                  
 b4c5: a9 8e        <span id="D_b4c5">D_b4c5</span>          .byte   $a9, $8e
 b4c7: 99 d9 04     <span id="L_b4c7">L_b4c7</span>          sta     Entity_SpriteTile,Y     
-b4ca: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
+b4ca: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
 b4cd: b0 8a                        bcs     <a href="#L_b459">L_b459</a>                  
 b4cf: a9 8f                        lda     #$8f                    
 b4d1: 99 d9 04                     sta     Entity_SpriteTile,Y     
-b4d4: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
+b4d4: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
 b4d7: b0 80                        bcs     <a href="#L_b459">L_b459</a>                  
 b4d9: 4c 55 b4                     jmp     <a href="#L_b455">L_b455</a>                  
 b4dc: 22 27 2c 31  <span id="D_b4dc">D_b4dc</span>          .byte   $22, $27, $2c, $31
@@ -3565,7 +3565,7 @@ b566: d0 0c        <span id="L_b566">L_b566</span>          bne     <a href="#L_
 b568: b9 8e 04     <span id="L_b568">L_b568</span>          lda     Entity_Active,Y         
 b56b: 29 10        <span id="Collision_Mask10">Collision_Mask10</span>and     #$10                    
 b56d: d0 0a                        bne     <a href="#L_b579">L_b579</a>                  
-b56f: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
+b56f: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
 b572: b0 09                        bcs     <a href="#L_b57d">L_b57d</a>                  
 b574: c8           <span id="L_b574">L_b574</span>          iny                             
 b575: c0 03                        cpy     #$03                    
@@ -3619,13 +3619,13 @@ b5e4: fe ba 05                     inc     Entity_TypeParam12,X
 b5e7: 20 cd f7     <span id="L_b5e7">L_b5e7</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
 b5ea: f0 68                        beq     <a href="#L_b654">L_b654</a>                  
 b5ec: a0 00                        ldy     #$00                    
-b5ee: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
+b5ee: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
 b5f1: b0 0e                        bcs     <a href="#L_b601">L_b601</a>                  
 b5f3: a0 01                        ldy     #$01                    
-b5f5: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
+b5f5: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
 b5f8: b0 07                        bcs     <a href="#L_b601">L_b601</a>                  
 b5fa: a0 02                        ldy     #$02                    
-b5fc: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
+b5fc: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
 b5ff: 90 0b                        bcc     <a href="#L_b60c">L_b60c</a>                  
 b601: b9 8e 04     <span id="L_b601">L_b601</span>          lda     Entity_Active,Y         
 b604: 09 01                        ora     #$01                    
@@ -3648,7 +3648,7 @@ b630: 9d 0b 05                     sta     Entity_Direction,X
 b633: 20 cd f7     <span id="L_b633">L_b633</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
 b636: f0 1c                        beq     <a href="#L_b654">L_b654</a>                  
 b638: a0 00                        ldy     #$00                    
-b63a: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
+b63a: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
 b63d: b0 06                        bcs     <a href="#L_b645">L_b645</a>                  
 b63f: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 b642: 4c 33 b6                     jmp     <a href="#L_b633">L_b633</a>                  
@@ -8713,7 +8713,7 @@ f815: d0 23                        bne     <a href="#L_f83a">L_f83a</a>
 f817: b9 8e 04                     lda     Entity_Active,Y         
 f81a: 29 20                        and     #$20                    
 f81c: d0 1c                        bne     <a href="#L_f83a">L_f83a</a>                  
-f81e: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
+f81e: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
 f821: 90 12                        bcc     <a href="#L_f835">L_f835</a>                  
 f823: b9 8e 04                     lda     Entity_Active,Y         
 f826: 09 01                        ora     #$01                    
@@ -8815,13 +8815,13 @@ f906: 9d f2 04                     sta     Entity_Class,X
 f909: 20 cd f7     <span id="L_f909">L_f909</span>          jsr     <a href="#L_f7cd">L_f7cd</a>                  
 f90c: f0 3c                        beq     <a href="#L_f94a">L_f94a</a>                  
 f90e: a0 01                        ldy     #$01                    
-f910: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
+f910: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
 f913: b0 14                        bcs     <a href="#L_f929">L_f929</a>                  
 f915: a0 02                        ldy     #$02                    
-f917: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
+f917: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
 f91a: b0 0d                        bcs     <a href="#L_f929">L_f929</a>                  
 f91c: a0 00                        ldy     #$00                    
-f91e: 20 61 aa                     jsr     <a href="#L_aa61">L_aa61</a>                  
+f91e: 20 61 aa                     jsr     <a href="#Collision_AABB">Collision_AABB</a>          
 f921: b0 06                        bcs     <a href="#L_f929">L_f929</a>                  
 f923: 20 75 c2                     jsr     <a href="#L_c275">L_c275</a>                  
 f926: 4c 09 f9                     jmp     <a href="#L_f909">L_f909</a>                  
