@@ -85,6 +85,7 @@ JOY2         = $4017
 Coroutine_ScanPos = $0000  ; Main_Loop's current position when scanning the 16-slot fiber table. Strides by 2 (each slot is 2 bytes: status at $02,X, saved SP at $03,X). Reset to 0 when the scan reaches slot $20 (end of table) and a VBlank wait completes. Persists between scans within a frame — so once a fiber yields, the scheduler resumes scanning from the slot after it (round-robin scheduling, not always-from-zero)
 Coroutine_Status = $0002  ; per-fiber status byte (array of 16, indexed by Coroutine_ScanPos with stride 2: $02, $04, ..., $20). Bit 7 = 'ready to run' — Main_Loop only resumes fibers with this bit set. Bit 0 = a programmer-controllable phase flag, manipulated by Coroutine_Yield_ClearBit0 ($c288) and Coroutine_Yield_SetBit0 ($c2a4). Other bits unused (so far). Note: this is a fiber-table status, distinct from Entity_Active ($048e) which is the per-entity-slot SOA flag
 Coroutine_SavedSP = $0003  ; per-fiber saved stack pointer (array of 16, $03/$05/.../$21). Each fiber owns a region of the 6502 stack page; this byte records where its SP was last left. On Coroutine_Yield: `tsx / sta $03,X[$00]`. On Coroutine_Resume: `lda $03,X / tax / txs`. The fact that each fiber has its own saved SP is what makes them true coroutines — they can yield from arbitrarily deep call chains and resume there
+Coroutine_Callback = $0022  ; per-fiber 16-bit callback/wakeup pointer (array of 16, $22:$23 / $24:$25 / ... / $40:$41 — paired bytes, X stride 2). Stamped by Coroutine_YieldWithCallback ($c251) from $86:$87. Likely a function pointer the scheduler dispatches when waking the fiber, or an event identifier — exact consumer not yet pinned
 Coroutine_SavedX = $0042  ; per-fiber saved X register (array of 16, $42/$44/.../$60). Saved by Coroutine_Yield via `txa / ldx $00 / sta $42,X`. Restored by Coroutine_Resume via `lda $42,X / tax`
 Coroutine_SavedY = $0043  ; per-fiber saved Y register (array of 16, $43/$45/.../$61). Saved by Coroutine_Yield via `tya / sta $43,X`. Restored by Coroutine_Resume via `lda $43,X / tay`
 VBlank_Counter = $0062  ; incremented at $c106 in the NMI tail; Main_Loop at $c2e8 spins until it reaches 3, then resets it. Effectively gates the game to one logic step per 3 VBlanks (~20 Hz)
@@ -3681,7 +3682,7 @@ b6b3: 99 a7 04                     sta     Entity_Y,Y
 b6b6: a9 20                        lda     #$20                    
 b6b8: 99 d9 04                     sta     Entity_SpriteTile,Y     
 b6bb: a9 1a                        lda     #$1a                    
-b6bd: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
+b6bd: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 b6c0: a9 ff                        lda     #$ff                    
 b6c2: 8d 0b 07                     sta     TitleMenu_FrameTimer    
 b6c5: 20 75 c2     <span id="TitleMenu_Handler">TitleMenu_Handler</span>jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
@@ -3744,8 +3745,8 @@ b76f: d0 06                        bne     <a href="#L_b777">L_b777</a>
 b771: ad bb 07     <span id="L_b771">L_b771</span>          lda     MenuCursor_Index        
 b774: 8d 81 03                     sta     MenuCursor_Latched      
 b777: a9 04        <span id="L_b777">L_b777</span>          lda     #$04                    
-b779: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
-b77c: 20 37 c2                     jsr     <a href="#L_c237">L_c237</a>                  
+b779: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
+b77c: 20 37 c2                     jsr     <a href="#Coroutine_Kill_Self">Coroutine_Kill_Self</a>     
 b77f: 8f 34 00 48 ..                .byte   $8f, $34, $00, $48, $02, $12, $38, $10
 b787: 02 38 1a 0a ..                .byte   $02, $38, $1a, $0a, $02, $1a, $0a, $0f
 b78f: 02 10 00 0f ..                .byte   $02, $10, $00, $0f, $02, $16, $10, $00
@@ -3799,10 +3800,10 @@ b82d: ad 84 03                     lda     P2_Active
 b830: f0 08                        beq     <a href="#L_b83a">L_b83a</a>                  
 b832: a9 ff                        lda     #$ff                    
 b834: 8d 83 03                     sta     $0383                   
-b837: 20 37 c2                     jsr     <a href="#L_c237">L_c237</a>                  
+b837: 20 37 c2                     jsr     <a href="#Coroutine_Kill_Self">Coroutine_Kill_Self</a>     
 b83a: a9 02        <span id="L_b83a">L_b83a</span>          lda     #$02                    
-b83c: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
-b83f: 20 37 c2                     jsr     <a href="#L_c237">L_c237</a>                  
+b83c: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
+b83f: 20 37 c2                     jsr     <a href="#Coroutine_Kill_Self">Coroutine_Kill_Self</a>     
 b842: ad bc 07     <span id="Continue_Init_P1">Continue_Init_P1</span>lda     TwoPlayer_Mode          
 b845: f0 08                        beq     <a href="#L_b84f">L_b84f</a>                  
 b847: 20 7f bf                     jsr     <a href="#Restore_P1_NoSave">Restore_P1_NoSave</a>       
@@ -4453,7 +4454,7 @@ bee5: a9 00                        lda     #$00
 bee7: 85 87                        sta     PPU_WriteCount          
 bee9: a9 80                        lda     #$80                    
 beeb: 85 86                        sta     $86                     
-beed: 20 51 c2                     jsr     <a href="#L_c251">L_c251</a>                  
+beed: 20 51 c2                     jsr     <a href="#Coroutine_YieldWithCallback">Coroutine_YieldWithCallback</a>
 bef0: a5 8d                        lda     $8d                     
 bef2: 29 e7                        and     #$e7                    
 bef4: 85 8d                        sta     $8d                     
@@ -4571,9 +4572,9 @@ c016: 20 db 9f                     jsr     <a href="#L_9fdb">L_9fdb</a>
 c019: a9 01                        lda     #$01                    
 c01b: 8d 2b 07                     sta     $072b                   
 c01e: a9 06                        lda     #$06                    
-c020: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
+c020: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 c023: a9 02                        lda     #$02                    
-c025: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
+c025: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 c028: a9 00                        lda     #$00                    
 c02a: 8d c5 07                     sta     GameState_Active        
 c02d: 4c c0 c2                     jmp     <a href="#Main_Loop">Main_Loop</a>               
@@ -4786,7 +4787,7 @@ c1ee: 10 04                        bpl     <a href="#L_c1f4">L_c1f4</a>
 c1f0: 29 7f                        and     #$7f                    
 c1f2: 95 99                        sta     $99,X                   
 c1f4: 60           <span id="L_c1f4">L_c1f4</span>          rts                             
-c1f5: 08           <span id="L_c1f5">L_c1f5</span>          php                             
+c1f5: 08           <span id="Coroutine_Spawn">Coroutine_Spawn</span> php                             
 c1f6: 48                           pha                             
 c1f7: 85 66                        sta     $66                     
 c1f9: 8a                           txa                             
@@ -4796,11 +4797,11 @@ c1fc: 48                           pha
 c1fd: a6 66                        ldx     $66                     
 c1ff: b5 02                        lda     $02,X                   
 c201: 29 80                        and     #$80                    
-c203: d0 2b                        bne     <a href="#L_c230">L_c230</a>                  
+c203: d0 2b                        bne     <a href="#Coroutine_Spawn_Tail">Coroutine_Spawn_Tail</a>    
 c205: b5 02                        lda     $02,X                   
 c207: 09 80                        ora     #$80                    
 c209: 95 02                        sta     $02,X                   
-c20b: bd 8a c3                     lda     $c38a,X                 
+c20b: bd 8a c3                     lda     <a href="#Fiber_StackBaseTable">Fiber_StackBaseTable</a>,X  
 c20e: 38                           sec                             
 c20f: e9 02                        sbc     #$02                    
 c211: 85 88                        sta     PPU_AddrLo              
@@ -4810,7 +4811,7 @@ c217: a0 00                        ldy     #$00
 c219: a9 04                        lda     #$04                    
 c21b: 91 88                        sta     ($88),Y                 
 c21d: c8                           iny                             
-c21e: bd aa c3                     lda     $c3aa,X                 
+c21e: bd aa c3                     lda     <a href="#Fiber_EntryPointTable">Fiber_EntryPointTable</a>,X 
 c221: 91 88                        sta     ($88),Y                 
 c223: c8                           iny                             
 c224: bd ab c3                     lda     $c3ab,X                 
@@ -4819,7 +4820,7 @@ c229: 38                           sec
 c22a: a5 88                        lda     PPU_AddrLo              
 c22c: e9 02                        sbc     #$02                    
 c22e: 95 03                        sta     $03,X                   
-c230: 68           <span id="L_c230">L_c230</span>          pla                             
+c230: 68           <span id="Coroutine_Spawn_Tail">Coroutine_Spawn_Tail</span>pla                             
 c231: a8                           tay                             
 c232: 68                           pla                             
 c233: aa                           tax                             
@@ -4828,7 +4829,7 @@ c235: 28                           plp
 c236: 60                           rts                             
 c237: a6 00 a9 00 ..<span id="D_c237">D_c237</span>          .byte   $a6, $00, $a9, $00, $95, $02, $4c, $c0
 c23f: c2                           .byte   $c2
-c240: 08           <span id="L_c240">L_c240</span>          php                             
+c240: 08           <span id="Coroutine_Kill_BySlot">Coroutine_Kill_BySlot</span>php                             
 c241: 48                           pha                             
 c242: 85 66                        sta     $66                     
 c244: 8a                           txa                             
@@ -4838,8 +4839,8 @@ c247: 48                           pha
 c248: a6 66                        ldx     $66                     
 c24a: a9 00                        lda     #$00                    
 c24c: 95 02                        sta     $02,X                   
-c24e: 4c 30 c2                     jmp     <a href="#L_c230">L_c230</a>                  
-c251: 08           <span id="L_c251">L_c251</span>          php                             
+c24e: 4c 30 c2                     jmp     <a href="#Coroutine_Spawn_Tail">Coroutine_Spawn_Tail</a>    
+c251: 08           <span id="Coroutine_YieldWithCallback">Coroutine_YieldWithCallback</span>php                             
 c252: 48                           pha                             
 c253: 8a                           txa                             
 c254: a6 00                        ldx     Coroutine_ScanPos       
@@ -4882,7 +4883,7 @@ c290: a6 66                        ldx     $66
 c292: b5 02                        lda     $02,X                   
 c294: 29 80                        and     #$80                    
 c296: d0 03                        bne     <a href="#L_c29b">L_c29b</a>                  
-c298: 4c 30 c2                     jmp     <a href="#L_c230">L_c230</a>                  
+c298: 4c 30 c2                     jmp     <a href="#Coroutine_Spawn_Tail">Coroutine_Spawn_Tail</a>    
 c29b: b5 02 29 fe ..<span id="D_c29b">D_c29b</span>          .byte   $b5, $02, $29, $fe, $95, $02, $4c, $30
 c2a3: c2                           .byte   $c2
 c2a4: 08           <span id="Coroutine_Yield_SetBit0">Coroutine_Yield_SetBit0</span>php                             
@@ -4896,7 +4897,7 @@ c2ac: a6 66                        ldx     $66
 c2ae: b5 02                        lda     $02,X                   
 c2b0: 29 80                        and     #$80                    
 c2b2: d0 03                        bne     <a href="#L_c2b7">L_c2b7</a>                  
-c2b4: 4c 30 c2                     jmp     <a href="#L_c230">L_c230</a>                  
+c2b4: 4c 30 c2                     jmp     <a href="#Coroutine_Spawn_Tail">Coroutine_Spawn_Tail</a>    
 c2b7: b5 02 09 01 ..<span id="D_c2b7">D_c2b7</span>          .byte   $b5, $02, $09, $01, $95, $02, $4c, $30
 c2bf: c2                           .byte   $c2
 c2c0: a6 00        <span id="Main_Loop">Main_Loop</span>       ldx     Coroutine_ScanPos       
@@ -4945,7 +4946,7 @@ c307: 48                           pha
 c308: a9 0a                        lda     #$0a                    
 c30a: 8d 1d 07                     sta     $071d                   
 c30d: ad 1d 07     <span id="L_c30d">L_c30d</span>          lda     $071d                   
-c310: 20 40 c2                     jsr     <a href="#L_c240">L_c240</a>                  
+c310: 20 40 c2                     jsr     <a href="#Coroutine_Kill_BySlot">Coroutine_Kill_BySlot</a>   
 c313: ee 1d 07                     inc     $071d                   
 c316: ee 1d 07                     inc     $071d                   
 c319: ad 1d 07                     lda     $071d                   
@@ -6016,7 +6017,7 @@ d5ee: a9 5a                        lda     #$5a
 d5f0: 85 86                        sta     $86                     
 d5f2: a9 00                        lda     #$00                    
 d5f4: 85 87                        sta     PPU_WriteCount          
-d5f6: 20 51 c2                     jsr     <a href="#L_c251">L_c251</a>                  
+d5f6: 20 51 c2                     jsr     <a href="#Coroutine_YieldWithCallback">Coroutine_YieldWithCallback</a>
 d5f9: a9 ff                        lda     #$ff                    
 d5fb: 8d 8c 04                     sta     $048c                   
 d5fe: a9 00                        lda     #$00                    
@@ -6024,7 +6025,7 @@ d600: 8d 8e 04                     sta     Entity_Active
 d603: 8d 8f 04                     sta     $048f                   
 d606: 8d 90 04                     sta     $0490                   
 d609: 8d ec 05                     sta     Entity_AnimFrame        
-d60c: 20 37 c2                     jsr     <a href="#L_c237">L_c237</a>                  
+d60c: 20 37 c2                     jsr     <a href="#Coroutine_Kill_Self">Coroutine_Kill_Self</a>     
 d60f: a9 00        <span id="L_d60f">L_d60f</span>          lda     #$00                    
 d611: 9d 8e 04                     sta     Entity_Active,X         
 d614: 4c b5 d1                     jmp     <a href="#L_d1b5">L_d1b5</a>                  
@@ -6207,7 +6208,7 @@ d7e4: 09 18                        ora     #$18
 d7e6: 85 8d                        sta     $8d                     
 d7e8: 20 75 c2                     jsr     <a href="#Coroutine_Yield">Coroutine_Yield</a>         
 d7eb: a9 08                        lda     #$08                    
-d7ed: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
+d7ed: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 d7f0: a9 00        <span id="L_d7f0">L_d7f0</span>          lda     #$00                    
 d7f2: 8d 33 04                     sta     $0433                   
 d7f5: 38                           sec                             
@@ -6258,9 +6259,9 @@ d85c: e8                           inx
 d85d: e0 0e                        cpx     #$0e                    
 d85f: 90 f8                        bcc     <a href="#L_d859">L_d859</a>                  
 d861: a9 1a                        lda     #$1a                    
-d863: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
+d863: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 d866: a9 1c                        lda     #$1c                    
-d868: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
+d868: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 d86b: 20 86 bc                     jsr     <a href="#L_bc86">L_bc86</a>                  
 d86e: ad 84 03                     lda     P2_Active               
 d871: d0 18                        bne     <a href="#L_d88b">L_d88b</a>                  
@@ -6287,7 +6288,7 @@ d8a0: e9 0d                        sbc     #$0d
 d8a2: 0a                           asl     A                       
 d8a3: 18                           clc                             
 d8a4: 69 08                        adc     #$08                    
-d8a6: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
+d8a6: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 d8a9: ee 1e 07                     inc     $071e                   
 d8ac: ee 1d 07                     inc     $071d                   
 d8af: ad 1d 07                     lda     $071d                   
@@ -6370,7 +6371,7 @@ d955: e9 0d                        sbc     #$0d
 d957: 0a                           asl     A                       
 d958: 18                           clc                             
 d959: 69 08                        adc     #$08                    
-d95b: 20 40 c2                     jsr     <a href="#L_c240">L_c240</a>                  
+d95b: 20 40 c2                     jsr     <a href="#Coroutine_Kill_BySlot">Coroutine_Kill_BySlot</a>   
 d95e: ee 1d 07                     inc     $071d                   
 d961: ad 1d 07                     lda     $071d                   
 d964: c9 13                        cmp     #$13                    
@@ -6554,7 +6555,7 @@ daec: e9 0d                        sbc     #$0d
 daee: 0a                           asl     A                       
 daef: 18                           clc                             
 daf0: 69 08                        adc     #$08                    
-daf2: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
+daf2: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 daf5: ac 1d 07                     ldy     $071d                   
 daf8: ce 1b 07                     dec     $071b                   
 dafb: d0 ce                        bne     <a href="#L_dacb">L_dacb</a>                  
@@ -6676,7 +6677,7 @@ dc0b: ad 47 04                     lda     $0447
 dc0e: c9 c8                        cmp     #$c8                    
 dc10: 90 1c                        bcc     <a href="#L_dc2e">L_dc2e</a>                  
 dc12: a9 1e                        lda     #$1e                    
-dc14: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
+dc14: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 dc17: ee 46 04                     inc     $0446                   
 dc1a: 4c 29 dc                     jmp     <a href="#L_dc29">L_dc29</a>                  
 dc1d: ad 47 04 c9 ..<span id="D_dc1d">D_dc1d</span>          .byte   $ad, $47, $04, $c9, $96, $90, $0a, $a9
@@ -6836,7 +6837,7 @@ ddc5: ba 05 a9 00 ..                .byte   $ba, $05, $a9, $00, $99, $6f, $05, $
 ddcd: 24 05 99 ec ..                .byte   $24, $05, $99, $ec, $05, $a9, $f8, $99
 ddd5: 88 05 a9 40 ..                .byte   $88, $05, $a9, $40, $99, $3d, $05
 dddc: a9 0a        <span id="L_dddc">L_dddc</span>          lda     #$0a                    
-ddde: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
+ddde: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 dde1: a9 02                        lda     #$02                    
 dde3: 8d 8d 07                     sta     $078d                   
 dde6: a9 00                        lda     #$00                    
@@ -7140,7 +7141,7 @@ e0ae: e9 0d                        sbc     #$0d
 e0b0: 0a                           asl     A                       
 e0b1: 18                           clc                             
 e0b2: 69 08                        adc     #$08                    
-e0b4: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
+e0b4: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 e0b7: ee 1e 07                     inc     $071e                   
 e0ba: ee 1d 07                     inc     $071d                   
 e0bd: ad 1d 07                     lda     $071d                   
@@ -7171,7 +7172,7 @@ e0f8: e9 0d                        sbc     #$0d
 e0fa: 0a                           asl     A                       
 e0fb: 18                           clc                             
 e0fc: 69 08                        adc     #$08                    
-e0fe: 20 40 c2                     jsr     <a href="#L_c240">L_c240</a>                  
+e0fe: 20 40 c2                     jsr     <a href="#Coroutine_Kill_BySlot">Coroutine_Kill_BySlot</a>   
 e101: ee 1d 07                     inc     $071d                   
 e104: ad 1d 07                     lda     $071d                   
 e107: c9 13                        cmp     #$13                    
@@ -7200,7 +7201,7 @@ e13f: a9 00                        lda     #$00
 e141: 85 87                        sta     PPU_WriteCount          
 e143: a9 78                        lda     #$78                    
 e145: 85 86                        sta     $86                     
-e147: 20 51 c2                     jsr     <a href="#L_c251">L_c251</a>                  
+e147: 20 51 c2                     jsr     <a href="#Coroutine_YieldWithCallback">Coroutine_YieldWithCallback</a>
 e14a: ad a1 03                     lda     NametableSelect         
 e14d: f0 0e                        beq     <a href="#L_e15d">L_e15d</a>                  
 e14f: a9 00                        lda     #$00                    
@@ -7211,7 +7212,7 @@ e15a: 4c f0 d7                     jmp     <a href="#L_d7f0">L_d7f0</a>
 e15d: a9 00        <span id="L_e15d">L_e15d</span>          lda     #$00                    
 e15f: 8d 85 03                     sta     P1_Active               
 e162: a9 08                        lda     #$08                    
-e164: 20 40 c2                     jsr     <a href="#L_c240">L_c240</a>                  
+e164: 20 40 c2                     jsr     <a href="#Coroutine_Kill_BySlot">Coroutine_Kill_BySlot</a>   
 e167: 20 06 c3                     jsr     <a href="#L_c306">L_c306</a>                  
 e16a: 20 40 e2                     jsr     <a href="#L_e240">L_e240</a>                  
 e16d: 20 f1 bc                     jsr     <a href="#L_bcf1">L_bcf1</a>                  
@@ -7233,7 +7234,7 @@ e18d: 85 87                        sta     PPU_WriteCount
 e18f: 8d 31 04                     sta     Lives_Tens              
 e192: 8d 32 04                     sta     Lives_Ones              
 e195: 8d c5 07                     sta     GameState_Active        
-e198: 20 51 c2                     jsr     <a href="#L_c251">L_c251</a>                  
+e198: 20 51 c2                     jsr     <a href="#Coroutine_YieldWithCallback">Coroutine_YieldWithCallback</a>
 e19b: 4c e0 e1                     jmp     <a href="#L_e1e0">L_e1e0</a>                  
 e19e: 0c 18 17 10 ..<span id="D_e19e">D_e19e</span>          .byte   $0c, $18, $17, $10, $1b, $0a, $1d, $1e
 e1a6: 15 0a 1d 12 ..                .byte   $15, $0a, $1d, $12, $18, $17
@@ -7826,7 +7827,7 @@ eded: e9 0d                        sbc     #$0d
 edef: 0a                           asl     A                       
 edf0: 18                           clc                             
 edf1: 69 08                        adc     #$08                    
-edf3: 20 f5 c1                     jsr     <a href="#L_c1f5">L_c1f5</a>                  
+edf3: 20 f5 c1                     jsr     <a href="#Coroutine_Spawn">Coroutine_Spawn</a>         
 edf6: fe 82 06                     inc     Entity_AnimTick,X       
 edf9: bd 82 06                     lda     Entity_AnimTick,X       
 edfc: c9 06                        cmp     #$06                    
@@ -8699,7 +8700,7 @@ f7ea: c9 ff                        cmp     #$ff
 f7ec: f0 08                        beq     <a href="#L_f7f6">L_f7f6</a>                  
 f7ee: a9 00                        lda     #$00                    
 f7f0: 9d 8e 04                     sta     Entity_Active,X         
-f7f3: 20 37 c2                     jsr     <a href="#L_c237">L_c237</a>                  
+f7f3: 20 37 c2                     jsr     <a href="#Coroutine_Kill_Self">Coroutine_Kill_Self</a>     
 f7f6: bd 8e 04     <span id="L_f7f6">L_f7f6</span>          lda     Entity_Active,X         
 f7f9: 29 80                        and     #$80                    
 f7fb: 60                           rts                             
@@ -8844,7 +8845,7 @@ f947: 20 14 ac                     .byte   $20, $14, $ac
 f94a: a9 00        <span id="L_f94a">L_f94a</span>          lda     #$00                    
 f94c: 9d 8e 04                     sta     Entity_Active,X         
 f94f: 20 2d c3                     jsr     <a href="#EntityClear_Slot">EntityClear_Slot</a>        
-f952: 20 37 c2                     jsr     <a href="#L_c237">L_c237</a>                  
+f952: 20 37 c2                     jsr     <a href="#Coroutine_Kill_Self">Coroutine_Kill_Self</a>     
 f955: ad 37 04     <span id="L_f955">L_f955</span>          lda     Respawn_Count           
 f958: c9 ff                        cmp     #$ff                    
 f95a: f0 21                        beq     <a href="#L_f97d">L_f97d</a>                  
@@ -8936,7 +8937,7 @@ fa26: a9 28                        lda     #$28
 fa28: 85 86                        sta     $86                     
 fa2a: a9 00                        lda     #$00                    
 fa2c: 85 87                        sta     PPU_WriteCount          
-fa2e: 20 51 c2                     jsr     <a href="#L_c251">L_c251</a>                  
+fa2e: 20 51 c2                     jsr     <a href="#Coroutine_YieldWithCallback">Coroutine_YieldWithCallback</a>
 fa31: 60                           rts                             
 fa32: ad 38 04     <span id="L_fa32">L_fa32</span>          lda     Level                   
 fa35: 29 03                        and     #$03                    
